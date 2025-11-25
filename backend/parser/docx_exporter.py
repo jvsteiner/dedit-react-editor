@@ -3,17 +3,42 @@ DOCX Exporter - Converts TipTap JSON back to Word document format.
 
 This module handles the reverse conversion from TipTap editor JSON
 back to a Word document (.docx) using python-docx.
+
+Supports:
+- Basic text formatting (bold, italic)
+- Headings (H1-H6)
+- Tables
+- Track changes (insertions/deletions) via OOXML
+- Comments via python-docx native API
 """
 
 from io import BytesIO
-from typing import Any
+from typing import Any, Optional
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+# Global counter for revision IDs
+_revision_id_counter = 0
 
 
-def create_docx_from_tiptap(tiptap_json: dict) -> BytesIO:
+def _next_revision_id() -> str:
+    """Generate next revision ID."""
+    global _revision_id_counter
+    _revision_id_counter += 1
+    return str(_revision_id_counter)
+
+
+def _reset_revision_counter():
+    """Reset revision counter (call at start of each export)."""
+    global _revision_id_counter
+    _revision_id_counter = 0
+
+
+def create_docx_from_tiptap(
+    tiptap_json: dict, comments: Optional[list[dict]] = None
+) -> BytesIO:
     """
     Convert TipTap JSON document to a Word document.
 
@@ -23,15 +48,25 @@ def create_docx_from_tiptap(tiptap_json: dict) -> BytesIO:
                 "type": "doc",
                 "content": [...]
             }
+        comments: Optional list of comment dictionaries with id, author, text, date
 
     Returns:
         BytesIO buffer containing the .docx file
     """
+    _reset_revision_counter()
+
     doc = Document()
+    comments_dict = {c["id"]: c for c in (comments or [])}
+
+    # Track which runs correspond to which comment IDs for later linking
+    comment_runs_map: dict[str, list] = {}
 
     content = tiptap_json.get("content", [])
     for node in content:
-        process_node(doc, node)
+        process_node(doc, node, comments_dict, comment_runs_map)
+
+    # Add comments after processing all content
+    _add_comments_to_document(doc, comments_dict, comment_runs_map)
 
     # Save to BytesIO buffer
     buffer = BytesIO()
@@ -40,45 +75,53 @@ def create_docx_from_tiptap(tiptap_json: dict) -> BytesIO:
     return buffer
 
 
-def process_node(doc: Document, node: dict, table_cell=None) -> None:
+def process_node(
+    doc: Document,
+    node: dict,
+    comments_dict: dict,
+    comment_runs_map: dict,
+    table_cell=None,
+) -> None:
     """
     Process a TipTap node and add it to the document.
 
     Args:
         doc: The python-docx Document object
         node: A TipTap node dictionary
+        comments_dict: Dictionary of comment ID to comment data
+        comment_runs_map: Map to track runs for each comment ID
         table_cell: Optional table cell to add content to (for nested content)
     """
     node_type = node.get("type")
 
     if node_type == "paragraph":
-        process_paragraph(doc, node, table_cell)
+        process_paragraph(
+            doc, node, comments_dict, comment_runs_map, table_cell
+        )
     elif node_type == "heading":
-        process_heading(doc, node, table_cell)
+        process_heading(doc, node, comments_dict, comment_runs_map, table_cell)
     elif node_type == "table":
-        process_table(doc, node)
+        process_table(doc, node, comments_dict, comment_runs_map)
     elif node_type == "section":
-        process_section(doc, node)
+        process_section(doc, node, comments_dict, comment_runs_map)
 
 
-def process_paragraph(doc: Document, node: dict, table_cell=None) -> None:
-    """
-    Process a paragraph node.
-
-    Args:
-        doc: The python-docx Document object
-        node: The paragraph node
-        table_cell: Optional table cell to add paragraph to
-    """
+def process_paragraph(
+    doc: Document,
+    node: dict,
+    comments_dict: dict,
+    comment_runs_map: dict,
+    table_cell=None,
+) -> None:
+    """Process a paragraph node."""
     if table_cell is not None:
         para = (
             table_cell.paragraphs[0]
             if table_cell.paragraphs
             else table_cell.add_paragraph()
         )
-        # Clear default paragraph if it exists and is empty
         if para.text == "" and len(table_cell.paragraphs) == 1:
-            pass  # Use existing empty paragraph
+            pass
         else:
             para = table_cell.add_paragraph()
     else:
@@ -87,52 +130,46 @@ def process_paragraph(doc: Document, node: dict, table_cell=None) -> None:
     content = node.get("content", [])
     for text_node in content:
         if text_node.get("type") == "text":
-            add_text_run(para, text_node)
+            add_text_with_marks(
+                para, text_node, comments_dict, comment_runs_map
+            )
 
 
-def process_heading(doc: Document, node: dict, table_cell=None) -> None:
-    """
-    Process a heading node.
-
-    Args:
-        doc: The python-docx Document object
-        node: The heading node
-        table_cell: Optional table cell (headings in cells become bold paragraphs)
-    """
+def process_heading(
+    doc: Document,
+    node: dict,
+    comments_dict: dict,
+    comment_runs_map: dict,
+    table_cell=None,
+) -> None:
+    """Process a heading node."""
     level = node.get("attrs", {}).get("level", 1)
     content = node.get("content", [])
 
     if table_cell is not None:
-        # In a table cell, just make it a bold paragraph
         para = table_cell.add_paragraph()
         for text_node in content:
             if text_node.get("type") == "text":
                 run = para.add_run(text_node.get("text", ""))
                 run.bold = True
-                apply_marks(run, text_node.get("marks", []))
+                _apply_basic_marks(run, text_node.get("marks", []))
     else:
-        # Use Word's heading styles
-        heading_style = f"Heading {min(level, 9)}"
         para = doc.add_heading(level=level)
-
         for text_node in content:
             if text_node.get("type") == "text":
-                add_text_run(para, text_node)
+                add_text_with_marks(
+                    para, text_node, comments_dict, comment_runs_map
+                )
 
 
-def process_table(doc: Document, node: dict) -> None:
-    """
-    Process a table node.
-
-    Args:
-        doc: The python-docx Document object
-        node: The table node
-    """
+def process_table(
+    doc: Document, node: dict, comments_dict: dict, comment_runs_map: dict
+) -> None:
+    """Process a table node."""
     rows_data = node.get("content", [])
     if not rows_data:
         return
 
-    # Determine table dimensions
     num_rows = len(rows_data)
     num_cols = (
         max(len(row.get("content", [])) for row in rows_data)
@@ -151,19 +188,21 @@ def process_table(doc: Document, node: dict) -> None:
         for col_idx, cell_node in enumerate(cells):
             if col_idx < num_cols:
                 cell = table.rows[row_idx].cells[col_idx]
-                # Clear default paragraph
                 if cell.paragraphs:
                     cell.paragraphs[0].clear()
 
-                # Process cell content
                 cell_content = cell_node.get("content", [])
                 for i, content_node in enumerate(cell_content):
                     if i == 0 and cell.paragraphs:
-                        # Use existing first paragraph
                         if content_node.get("type") == "paragraph":
                             for text_node in content_node.get("content", []):
                                 if text_node.get("type") == "text":
-                                    add_text_run(cell.paragraphs[0], text_node)
+                                    add_text_with_marks(
+                                        cell.paragraphs[0],
+                                        text_node,
+                                        comments_dict,
+                                        comment_runs_map,
+                                    )
                         elif content_node.get("type") == "heading":
                             for text_node in content_node.get("content", []):
                                 if text_node.get("type") == "text":
@@ -171,56 +210,206 @@ def process_table(doc: Document, node: dict) -> None:
                                         text_node.get("text", "")
                                     )
                                     run.bold = True
-                                    apply_marks(run, text_node.get("marks", []))
+                                    _apply_basic_marks(
+                                        run, text_node.get("marks", [])
+                                    )
                     else:
-                        process_node(doc, content_node, table_cell=cell)
+                        process_node(
+                            doc,
+                            content_node,
+                            comments_dict,
+                            comment_runs_map,
+                            table_cell=cell,
+                        )
 
 
-def process_section(doc: Document, node: dict) -> None:
-    """
-    Process a section node (just process its content).
-
-    Args:
-        doc: The python-docx Document object
-        node: The section node
-    """
+def process_section(
+    doc: Document, node: dict, comments_dict: dict, comment_runs_map: dict
+) -> None:
+    """Process a section node (just process its content)."""
     content = node.get("content", [])
     for child_node in content:
-        process_node(doc, child_node)
+        process_node(doc, child_node, comments_dict, comment_runs_map)
 
 
-def add_text_run(para, text_node: dict) -> None:
+def add_text_with_marks(
+    para, text_node: dict, comments_dict: dict, comment_runs_map: dict
+) -> None:
     """
-    Add a text run to a paragraph with formatting.
+    Add text to a paragraph, handling track changes and comments.
 
     Args:
         para: The python-docx Paragraph object
         text_node: The TipTap text node
+        comments_dict: Dictionary of comment data
+        comment_runs_map: Map to track runs for comment linking
     """
     text = text_node.get("text", "")
     if not text:
         return
 
-    run = para.add_run(text)
     marks = text_node.get("marks", [])
-    apply_marks(run, marks)
 
+    # Check for track change marks
+    insertion_mark = None
+    deletion_mark = None
+    comment_ids = []
+    basic_marks = []
 
-def apply_marks(run, marks: list) -> None:
-    """
-    Apply TipTap marks (formatting) to a Word run.
-
-    Args:
-        run: The python-docx Run object
-        marks: List of TipTap mark dictionaries
-    """
     for mark in marks:
         mark_type = mark.get("type")
+        if mark_type == "insertion":
+            insertion_mark = mark.get("attrs", {})
+        elif mark_type == "deletion":
+            deletion_mark = mark.get("attrs", {})
+        elif mark_type == "comment":
+            comment_id = mark.get("attrs", {}).get("commentId")
+            if comment_id:
+                comment_ids.append(comment_id)
+        elif mark_type in ("bold", "italic"):
+            basic_marks.append(mark)
 
+    # Handle track changes
+    if insertion_mark:
+        _add_insertion(para, text, insertion_mark, basic_marks)
+    elif deletion_mark:
+        _add_deletion(para, text, deletion_mark, basic_marks)
+    else:
+        # Regular text
+        run = para.add_run(text)
+        _apply_basic_marks(run, basic_marks)
+
+        # Track runs for comments
+        for comment_id in comment_ids:
+            if comment_id not in comment_runs_map:
+                comment_runs_map[comment_id] = []
+            comment_runs_map[comment_id].append(run)
+
+
+def _add_insertion(para, text: str, attrs: dict, basic_marks: list) -> None:
+    """
+    Add text as an insertion (tracked change).
+
+    Creates a w:ins element wrapping the run.
+    """
+    p_elem = para._p
+
+    # Create w:ins element
+    ins = OxmlElement("w:ins")
+    ins.set(qn("w:id"), _next_revision_id())
+    ins.set(qn("w:author"), attrs.get("author", "Unknown"))
+    if attrs.get("date"):
+        ins.set(qn("w:date"), attrs["date"])
+
+    # Create run inside insertion
+    r = OxmlElement("w:r")
+
+    # Add run properties for formatting
+    if basic_marks:
+        rPr = OxmlElement("w:rPr")
+        for mark in basic_marks:
+            if mark.get("type") == "bold":
+                rPr.append(OxmlElement("w:b"))
+            elif mark.get("type") == "italic":
+                rPr.append(OxmlElement("w:i"))
+        r.append(rPr)
+
+    # Add text element
+    t = OxmlElement("w:t")
+    t.text = text
+    # Preserve spaces
+    t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    r.append(t)
+
+    ins.append(r)
+    p_elem.append(ins)
+
+
+def _add_deletion(para, text: str, attrs: dict, basic_marks: list) -> None:
+    """
+    Add text as a deletion (tracked change).
+
+    Creates a w:del element with w:delText inside.
+    """
+    p_elem = para._p
+
+    # Create w:del element
+    del_elem = OxmlElement("w:del")
+    del_elem.set(qn("w:id"), _next_revision_id())
+    del_elem.set(qn("w:author"), attrs.get("author", "Unknown"))
+    if attrs.get("date"):
+        del_elem.set(qn("w:date"), attrs["date"])
+
+    # Create run inside deletion
+    r = OxmlElement("w:r")
+
+    # Add run properties for formatting
+    if basic_marks:
+        rPr = OxmlElement("w:rPr")
+        for mark in basic_marks:
+            if mark.get("type") == "bold":
+                rPr.append(OxmlElement("w:b"))
+            elif mark.get("type") == "italic":
+                rPr.append(OxmlElement("w:i"))
+        r.append(rPr)
+
+    # Add deleted text element (w:delText instead of w:t)
+    del_text = OxmlElement("w:delText")
+    del_text.text = text
+    del_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    r.append(del_text)
+
+    del_elem.append(r)
+    p_elem.append(del_elem)
+
+
+def _apply_basic_marks(run, marks: list) -> None:
+    """Apply basic formatting marks (bold, italic) to a run."""
+    for mark in marks:
+        mark_type = mark.get("type")
         if mark_type == "bold":
             run.bold = True
         elif mark_type == "italic":
             run.italic = True
-        # insertion and deletion marks are ignored - the text is already
-        # in its final state after accept/reject operations
-        # comment marks are also ignored in export
+
+
+def _add_comments_to_document(
+    doc: Document, comments_dict: dict, comment_runs_map: dict
+) -> None:
+    """
+    Add comments to the document using python-docx's add_comment API.
+
+    Args:
+        doc: The python-docx Document object
+        comments_dict: Dictionary of comment ID to comment data
+        comment_runs_map: Map of comment ID to list of runs
+    """
+    for comment_id, runs in comment_runs_map.items():
+        if comment_id not in comments_dict:
+            continue
+
+        comment_data = comments_dict[comment_id]
+        if not runs:
+            continue
+
+        # Get first and last run for the comment range
+        first_run = runs[0]
+        last_run = runs[-1] if len(runs) > 1 else runs[0]
+
+        try:
+            # Use python-docx native add_comment API
+            doc.add_comment(
+                first_run,
+                text=comment_data.get("text", ""),
+                author=comment_data.get("author", "Unknown"),
+                initials=comment_data.get("initials", ""),
+            )
+
+            # If comment spans multiple runs, mark the range
+            if len(runs) > 1:
+                first_run.mark_comment_range(
+                    last_run, doc.comments[-1].comment_id
+                )
+        except Exception as e:
+            # If comment creation fails, continue without it
+            print(f"Warning: Could not add comment {comment_id}: {e}")

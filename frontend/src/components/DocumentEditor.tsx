@@ -15,6 +15,7 @@ import TableWithId from "../extensions/TableWithId";
 import { Insertion } from "../extensions/Insertion";
 import { Deletion } from "../extensions/Deletion";
 import { Comment } from "../extensions/Comment";
+import { TrackChangesMode } from "../extensions/TrackChangesMode";
 
 interface DocumentEditorProps {
   content: Record<string, unknown> | null;
@@ -48,6 +49,10 @@ export function DocumentEditor({
         Insertion,
         Deletion,
         Comment,
+        TrackChangesMode.configure({
+          enabled: false,
+          author: "Current User",
+        }),
       ],
       content: content || {
         type: "doc",

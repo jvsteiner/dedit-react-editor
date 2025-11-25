@@ -1,8 +1,12 @@
 import { Editor } from "@tiptap/react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 
 interface TrackChangesToolbarProps {
   editor: Editor | null;
+  trackChangesEnabled: boolean;
+  onTrackChangesToggle: (enabled: boolean) => void;
+  author: string;
+  onAuthorChange: (author: string) => void;
 }
 
 interface Change {
@@ -15,7 +19,37 @@ interface Change {
   to: number;
 }
 
-export function TrackChangesToolbar({ editor }: TrackChangesToolbarProps) {
+export function TrackChangesToolbar({
+  editor,
+  trackChangesEnabled,
+  onTrackChangesToggle,
+  author,
+  onAuthorChange,
+}: TrackChangesToolbarProps) {
+  const [isEditingAuthor, setIsEditingAuthor] = useState(false);
+  const [tempAuthor, setTempAuthor] = useState(author);
+
+  // Sync track changes state with editor extension
+  useEffect(() => {
+    if (!editor) return;
+
+    if (trackChangesEnabled) {
+      editor.commands.enableTrackChanges();
+      editor.commands.setTrackChangesAuthor(author);
+    } else {
+      editor.commands.disableTrackChanges();
+    }
+  }, [editor, trackChangesEnabled, author]);
+
+  const handleToggle = useCallback(() => {
+    onTrackChangesToggle(!trackChangesEnabled);
+  }, [trackChangesEnabled, onTrackChangesToggle]);
+
+  const handleAuthorSave = useCallback(() => {
+    onAuthorChange(tempAuthor);
+    setIsEditingAuthor(false);
+  }, [tempAuthor, onAuthorChange]);
+
   const changes = useMemo(() => {
     if (!editor) return [];
 
@@ -112,8 +146,64 @@ export function TrackChangesToolbar({ editor }: TrackChangesToolbarProps) {
 
   return (
     <div className="track-changes-toolbar">
+      {/* Track Changes Mode Toggle */}
+      <div className="track-changes-mode">
+        <div className="mode-toggle-row">
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={trackChangesEnabled}
+              onChange={handleToggle}
+              className="toggle-checkbox"
+            />
+            <span className="toggle-slider"></span>
+            <span className="toggle-text">
+              Track Changes {trackChangesEnabled ? "ON" : "OFF"}
+            </span>
+          </label>
+        </div>
+
+        {trackChangesEnabled && (
+          <div className="author-row">
+            {isEditingAuthor ? (
+              <div className="author-edit">
+                <input
+                  type="text"
+                  value={tempAuthor}
+                  onChange={(e) => setTempAuthor(e.target.value)}
+                  placeholder="Your name"
+                  className="author-input"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAuthorSave();
+                    if (e.key === "Escape") setIsEditingAuthor(false);
+                  }}
+                />
+                <button onClick={handleAuthorSave} className="author-save-btn">
+                  Save
+                </button>
+              </div>
+            ) : (
+              <div className="author-display">
+                <span className="author-label">Author:</span>
+                <span className="author-name">{author}</span>
+                <button
+                  onClick={() => {
+                    setTempAuthor(author);
+                    setIsEditingAuthor(true);
+                  }}
+                  className="author-edit-btn"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="track-changes-header">
-        <h3>Track Changes ({changes.length})</h3>
+        <h3>Changes ({changes.length})</h3>
         {changes.length > 0 && (
           <div className="track-changes-actions">
             <button onClick={handleAcceptAll} className="accept-all-btn">
@@ -131,10 +221,7 @@ export function TrackChangesToolbar({ editor }: TrackChangesToolbarProps) {
       ) : (
         <ul className="changes-list">
           {changes.map((change) => (
-            <li
-              key={change.id}
-              className={`change-item change-${change.type}`}
-            >
+            <li key={change.id} className={`change-item change-${change.type}`}>
               <div className="change-info">
                 <span className={`change-type ${change.type}`}>
                   {change.type === "insertion" ? "Added" : "Deleted"}

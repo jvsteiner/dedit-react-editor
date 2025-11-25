@@ -31,6 +31,15 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trackChangesEnabled, setTrackChangesEnabled] = useState(false);
+  const [trackChangesAuthor, setTrackChangesAuthor] = useState(() => {
+    return localStorage.getItem("trackChangesAuthor") || "Current User";
+  });
+
+  const handleAuthorChange = useCallback((author: string) => {
+    setTrackChangesAuthor(author);
+    localStorage.setItem("trackChangesAuthor", author);
+  }, []);
 
   const handleEditorReady = useCallback((editorInstance: Editor) => {
     setEditor(editorInstance);
@@ -86,6 +95,7 @@ function App() {
         body: JSON.stringify({
           tiptap: editorJson,
           filename: document?.filename || "document.docx",
+          comments: comments,
         }),
       });
 
@@ -149,7 +159,13 @@ function App() {
 
       <div className="editor-container">
         <div className="sidebar-panel">
-          <TrackChangesToolbar editor={editor} />
+          <TrackChangesToolbar
+            editor={editor}
+            trackChangesEnabled={trackChangesEnabled}
+            onTrackChangesToggle={setTrackChangesEnabled}
+            author={trackChangesAuthor}
+            onAuthorChange={handleAuthorChange}
+          />
           <CommentsPanel editor={editor} comments={comments} />
         </div>
 

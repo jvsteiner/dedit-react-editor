@@ -109,11 +109,22 @@ async def list_documents():
     ]
 
 
+class CommentExport(BaseModel):
+    """Comment data for export."""
+
+    id: str
+    author: str
+    text: str
+    date: str | None = None
+    initials: str | None = None
+
+
 class ExportRequest(BaseModel):
     """Request body for exporting a document."""
 
     tiptap: dict
     filename: str = "document.docx"
+    comments: list[CommentExport] = []
 
 
 @app.post("/export")
@@ -124,8 +135,11 @@ async def export_document(request: ExportRequest):
     Takes the current editor state and converts it to a .docx file.
     """
     try:
+        # Convert comments to dict format
+        comments_list = [c.model_dump() for c in request.comments]
+
         # Convert TipTap JSON to DOCX
-        docx_buffer = create_docx_from_tiptap(request.tiptap)
+        docx_buffer = create_docx_from_tiptap(request.tiptap, comments_list)
 
         # Ensure filename ends with .docx
         filename = request.filename
