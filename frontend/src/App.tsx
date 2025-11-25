@@ -1,51 +1,74 @@
-import { useState } from 'react'
-import DocumentEditor from './components/DocumentEditor'
-import FileUpload from './components/FileUpload'
+import { useState, useCallback } from "react";
+import { Editor } from "@tiptap/react";
+import DocumentEditor from "./components/DocumentEditor";
+import FileUpload from "./components/FileUpload";
+import TrackChangesToolbar from "./components/TrackChangesToolbar";
+import CommentsPanel from "./components/CommentsPanel";
+
+interface CommentData {
+  id: string;
+  author: string;
+  date: string;
+  text: string;
+  replies?: CommentData[];
+}
 
 interface DocumentData {
-  id: string
-  filename: string
-  tiptap: Record<string, unknown>
-  intermediate: unknown[]
+  id: string;
+  filename: string;
+  tiptap: Record<string, unknown>;
+  intermediate: unknown[];
+  comments: CommentData[];
 }
 
 function App() {
-  const [document, setDocument] = useState<DocumentData | null>(null)
-  const [editorJson, setEditorJson] = useState<Record<string, unknown> | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [document, setDocument] = useState<DocumentData | null>(null);
+  const [editorJson, setEditorJson] = useState<Record<string, unknown> | null>(
+    null,
+  );
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [comments, setComments] = useState<CommentData[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleEditorReady = useCallback((editorInstance: Editor) => {
+    setEditor(editorInstance);
+  }, []);
 
   const handleUpload = async (file: File) => {
-    setIsLoading(true)
-    setError(null)
+    setIsLoading(true);
+    setError(null);
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const response = await fetch('http://localhost:8000/upload', {
-        method: 'POST',
+      const response = await fetch("http://localhost:8000/upload", {
+        method: "POST",
         body: formData,
-      })
+      });
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Upload failed')
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Upload failed");
       }
 
-      const data: DocumentData = await response.json()
-      setDocument(data)
-      setEditorJson(data.tiptap)
+      const data: DocumentData = await response.json();
+      setDocument(data);
+      setEditorJson(data.tiptap);
+      setComments(data.comments || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload document')
+      setError(
+        err instanceof Error ? err.message : "Failed to upload document",
+      );
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handleEditorUpdate = (json: Record<string, unknown>) => {
-    setEditorJson(json)
-  }
+    setEditorJson(json);
+  };
 
   return (
     <div className="app">
@@ -57,7 +80,7 @@ function App() {
       <section className="upload-section">
         <FileUpload onUpload={handleUpload} isLoading={isLoading} />
         {document && (
-          <p style={{ marginTop: '1rem', color: '#666' }}>
+          <p style={{ marginTop: "1rem", color: "#666" }}>
             Loaded: {document.filename}
           </p>
         )}
@@ -66,12 +89,18 @@ function App() {
       {error && <div className="error">{error}</div>}
 
       <div className="editor-container">
+        <div className="sidebar-panel">
+          <TrackChangesToolbar editor={editor} />
+          <CommentsPanel editor={editor} comments={comments} />
+        </div>
+
         <div className="editor-panel">
           <div className="panel-header">Editor</div>
           <div className="editor-content">
             <DocumentEditor
               content={document?.tiptap || null}
               onUpdate={handleEditorUpdate}
+              onEditorReady={handleEditorReady}
             />
           </div>
         </div>
@@ -82,13 +111,13 @@ function App() {
             <pre>
               {editorJson
                 ? JSON.stringify(editorJson, null, 2)
-                : JSON.stringify({ type: 'doc', content: [] }, null, 2)}
+                : JSON.stringify({ type: "doc", content: [] }, null, 2)}
             </pre>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

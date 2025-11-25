@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from parser import parse_docx, to_tiptap
+from parser import comments_to_dict, parse_docx, to_tiptap
 from parser.docx_parser import elements_to_dict
 
 app = FastAPI(
@@ -53,12 +53,13 @@ async def upload_document(file: UploadFile):
     try:
         content = await file.read()
 
-        # Parse the document
-        elements = parse_docx(content)
+        # Parse the document (now returns elements and comments)
+        elements, comments = parse_docx(content)
 
         # Convert to both formats
         intermediate = elements_to_dict(elements)
         tiptap_doc = to_tiptap(elements)
+        comments_list = comments_to_dict(comments)
 
         # Generate document ID and store
         import uuid
@@ -68,6 +69,7 @@ async def upload_document(file: UploadFile):
             "filename": file.filename,
             "intermediate": intermediate,
             "tiptap": tiptap_doc,
+            "comments": comments_list,
         }
 
         return {
@@ -75,6 +77,7 @@ async def upload_document(file: UploadFile):
             "filename": file.filename,
             "tiptap": tiptap_doc,
             "intermediate": intermediate,
+            "comments": comments_list,
         }
 
     except Exception as e:

@@ -16,6 +16,12 @@ Build a proof of concept demonstrating the core workflow: **DOCX → Structured 
 - Display in a minimal Tiptap editor with table editing support
 - Demonstrate programmatic manipulation (simulating AI edits)
 
+### In Scope (Phase 2)
+- Parse and display track changes (insertions/deletions) from Word documents
+- Accept or reject individual changes in the editor
+- Parse and display comments with author and timestamp
+- Reply to comments, add new comments, resolve/delete comments
+
 ### Out of Scope (PoC)
 - Real-time collaboration (Y.js)
 - Production-quality UI
@@ -23,6 +29,7 @@ Build a proof of concept demonstrating the core workflow: **DOCX → Structured 
 - Actual AI integration
 - DOCX export
 - Merged cells / complex table layouts
+- Formatting changes in track changes (only text insertions/deletions)
 
 ## Architecture
 
@@ -409,6 +416,222 @@ The PoC is successful if:
 2. **Merged cells**: Should merged table cells be supported? (Recommend: defer - out of scope)
 3. **Cross-references**: Should we detect and link "see Section 2a" text? (Recommend: defer)
 4. **Nested tables**: Should tables inside table cells be supported? (Recommend: defer - rare in practice)
+
+---
+
+## Phase 4: Track Changes & Comments
+
+### Overview
+
+Word documents store track changes and comments in the underlying XML:
+- **Insertions**: `<w:ins>` elements wrapping inserted content
+- **Deletions**: `<w:del>` elements wrapping deleted content
+- **Comments**: Stored in `word/comments.xml`, referenced via `<w:commentRangeStart>`, `<w:commentRangeEnd>`, and `<w:commentReference>`
+
+### Data Models
+
+#### Track Change (Intermediate Format)
+
+```json
+{
+  "type": "insertion" | "deletion",
+  "id": "uuid-789",
+  "author": "John Smith",
+  "date": "2025-11-20T14:30:00Z",
+  "content": [{ "type": "text", "text": "inserted text here" }]
+}
+```
+
+#### Comment (Intermediate Format)
+
+```json
+{
+  "id": "comment-1",
+  "author": "Jane Doe",
+  "date": "2025-11-20T15:00:00Z",
+  "text": "Please clarify this section",
+  "rangeStart": 145,
+  "rangeEnd": 203,
+  "replies": [
+    {
+      "id": "comment-2",
+      "author": "John Smith", 
+      "date": "2025-11-20T16:00:00Z",
+      "text": "Done, see updated text"
+    }
+  ]
+}
+```
+
+#### Tiptap Representation
+
+**Track changes** use custom marks on text nodes:
+
+```json
+{
+  "type": "text",
+  "text": "new contract terms",
+  "marks": [
+    {
+      "type": "insertion",
+      "attrs": {
+        "id": "uuid-789",
+        "author": "John Smith",
+        "date": "2025-11-20T14:30:00Z"
+      }
+    }
+  ]
+}
+```
+
+**Deletions** are preserved but marked (not removed):
+
+```json
+{
+  "type": "text",
+  "text": "old contract terms",
+  "marks": [
+    {
+      "type": "deletion",
+      "attrs": {
+        "id": "uuid-790",
+        "author": "John Smith",
+        "date": "2025-11-20T14:30:00Z"
+      }
+    }
+  ]
+}
+```
+
+**Comments** use marks to highlight the commented range, with comment data stored separately:
+
+```json
+{
+  "type": "text",
+  "text": "ambiguous clause",
+  "marks": [
+    {
+      "type": "comment",
+      "attrs": {
+        "commentId": "comment-1"
+      }
+    }
+  ]
+}
+```
+
+### Implementation Tasks
+
+#### 4.1 Parser Updates (Python Backend)
+
+- [ ] Create `parser/revisions_parser.py`
+- [ ] Extract `<w:ins>` elements with author, date attributes
+- [ ] Extract `<w:del>` elements with author, date attributes  
+- [ ] Handle nested revisions (insertion containing formatted text)
+- [ ] Create `parser/comments_parser.py`
+- [ ] Parse `word/comments.xml` from DOCX zip
+- [ ] Map comment IDs to their text ranges in document body
+- [ ] Extract comment replies (threaded comments)
+- [ ] Update `tiptap_converter.py` to emit insertion/deletion marks
+- [ ] Update `tiptap_converter.py` to emit comment marks
+
+#### 4.2 Tiptap Extensions (Frontend)
+
+- [ ] Create `Insertion` mark extension
+  - Render with green background / underline
+  - Store author, date, id in attrs
+- [ ] Create `Deletion` mark extension
+  - Render with red background / strikethrough
+  - Store author, date, id in attrs
+- [ ] Create `Comment` mark extension
+  - Render with yellow highlight
+  - Store commentId in attrs
+- [ ] Create `CommentsPanel` component
+  - Display list of comments with author, date, text
+  - Show which text each comment references
+  - Support replies
+
+#### 4.3 Track Changes UI
+
+- [ ] Create `TrackChangesToolbar` component
+- [ ] "Accept Change" button - removes the mark, keeps inserted text / removes deleted text
+- [ ] "Reject Change" button - removes inserted text / keeps deleted text
+- [ ] "Accept All" / "Reject All" bulk operations
+- [ ] Visual indicators showing change author on hover
+- [ ] Toggle to show/hide track changes
+
+#### 4.4 Comments UI
+
+- [ ] Click on highlighted text to view comment in sidebar
+- [ ] "Reply" button to add threaded reply
+- [ ] "Resolve" button to mark comment as resolved
+- [ ] "Delete" button to remove comment
+- [ ] "Add Comment" - select text, click button, enter comment
+- [ ] New comments get current user as author
+
+#### 4.5 API Updates
+
+- [ ] `POST /upload` returns `comments` array alongside `tiptap` document
+- [ ] `POST /documents/{id}/comments` - add new comment
+- [ ] `PATCH /documents/{id}/comments/{commentId}` - reply or resolve
+- [ ] `DELETE /documents/{id}/comments/{commentId}` - delete comment
+- [ ] `POST /documents/{id}/changes/{changeId}/accept` - accept a tracked change
+- [ ] `POST /documents/{id}/changes/{changeId}/reject` - reject a tracked change
+
+### Key Technical Decisions
+
+#### 1. Deletions Are Preserved
+
+Unlike Word's "accept all changes" which removes deleted text, we keep it in the document with a `deletion` mark. This allows:
+- Showing what was removed
+- Undoing reject operations
+- AI analysis of what changed
+
+#### 2. Comments Stored Separately
+
+Comments are stored in a separate array rather than inline in the document. The document only contains `comment` marks with IDs. This:
+- Keeps the document structure clean
+- Makes it easy to list/filter comments
+- Supports threaded replies naturally
+
+#### 3. Using Marks (Not Nodes)
+
+Track changes and comments are **marks** on text, not separate nodes. This:
+- Preserves the underlying document structure
+- Allows changes to span partial paragraphs
+- Matches how Word represents them
+- Works with Tiptap's existing text handling
+
+### Validation Criteria
+
+Phase 4 is successful if:
+
+1. **Parse Insertions**: `<w:ins>` elements are extracted with author/date
+2. **Parse Deletions**: `<w:del>` elements are extracted with author/date
+3. **Parse Comments**: Comments from `comments.xml` are linked to text ranges
+4. **Display Changes**: Insertions show green, deletions show red strikethrough
+5. **Display Comments**: Highlighted text shows comment on click
+6. **Accept/Reject**: User can accept or reject individual changes
+7. **Comment Actions**: User can reply, resolve, delete, and add comments
+
+### File Structure Updates
+
+```
+dedit/
+├── backend/
+│   └── parser/
+│       ├── revisions_parser.py    # NEW: Track changes extraction
+│       └── comments_parser.py     # NEW: Comments extraction
+└── frontend/
+    └── src/
+        ├── extensions/
+        │   ├── Insertion.ts       # NEW: Insertion mark
+        │   ├── Deletion.ts        # NEW: Deletion mark
+        │   └── Comment.ts         # NEW: Comment mark
+        └── components/
+            ├── TrackChangesToolbar.tsx  # NEW
+            └── CommentsPanel.tsx        # NEW
+```
 
 ## Next Steps
 

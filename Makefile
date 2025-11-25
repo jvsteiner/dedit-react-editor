@@ -1,7 +1,7 @@
-.PHONY: install install-backend install-frontend dev dev-backend dev-frontend stop clean sample help
+.PHONY: install install-backend install-frontend dev dev-backend dev-frontend kill-ports stop clean sample help
 
 # Absolute paths
-ROOT_DIR := /Users/jamie/Code/dedit
+ROOT_DIR := $(shell pwd)
 BACKEND_DIR := $(ROOT_DIR)/backend
 FRONTEND_DIR := $(ROOT_DIR)/frontend
 VENV := $(BACKEND_DIR)/.venv
@@ -11,9 +11,10 @@ help:
 	@echo "Document Editor PoC - Available commands:"
 	@echo ""
 	@echo "  make install          Install all dependencies (backend + frontend)"
-	@echo "  make dev              Start both backend and frontend servers"
+	@echo "  make dev              Start both servers (auto-kills processes on ports)"
 	@echo "  make dev-backend      Start only the backend server (port 8000)"
 	@echo "  make dev-frontend     Start only the frontend server (port 5173)"
+	@echo "  make kill-ports       Kill any processes using ports 8000 and 5173"
 	@echo "  make stop             Stop all running servers"
 	@echo "  make sample           Create a sample Word document for testing"
 	@echo "  make clean            Remove virtual environments and node_modules"
@@ -37,8 +38,15 @@ install-frontend:
 	cd $(FRONTEND_DIR) && npm install
 	@echo "Frontend dependencies installed"
 
-# Start both servers with foreman
-dev:
+# Kill any processes using our ports
+kill-ports:
+	@echo "Checking for processes on ports 8000 and 5173..."
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+	@echo "Ports cleared"
+
+# Start both servers with foreman (kills existing processes first)
+dev: kill-ports
 	foreman start -f $(ROOT_DIR)/Procfile.dev
 
 # Start only backend

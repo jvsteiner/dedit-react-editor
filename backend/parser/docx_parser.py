@@ -6,26 +6,39 @@ Handles:
 - Numbered/bulleted lists with computed numbering
 - Tables with rich cell content
 - Headings
+- Track changes (insertions/deletions)
+- Comments
 """
 
-import re
 import uuid
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Optional
 
 from docx import Document
-from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+
+from .comments_parser import (
+    comments_to_dict,
+    extract_comments_from_docx,
+    get_text_with_comments,
+)
+from .revisions_parser import get_text_with_revisions, merge_adjacent_segments
 
 
 @dataclass
 class TextRun:
-    """A run of text with formatting."""
+    """A run of text with formatting and revision/comment info."""
 
     text: str
     bold: bool = False
     italic: bool = False
+    revision: Optional[dict] = (
+        None  # {'type': 'insertion'|'deletion', 'id': ..., 'author': ..., 'date': ...}
+    )
+    comment_ids: list[str] = field(
+        default_factory=list
+    )  # List of comment IDs this text is part of
 
 
 @dataclass
@@ -204,19 +217,52 @@ class NumberingTracker:
 
 
 def parse_paragraph(
-    para, numbering_tracker: Optional[NumberingTracker] = None
+    para,
+    numbering_tracker: Optional[NumberingTracker] = None,
+    para_index: int = 0,
 ) -> Paragraph:
     """Parse a python-docx paragraph into our intermediate format."""
+
+    # Get text with revisions (track changes) and comments
+    revision_segments = get_text_with_revisions(para._element, para_index)
+    revision_segments = merge_adjacent_segments(revision_segments)
+
+    comment_segments = get_text_with_comments(para._element, para_index)
+
+    # Build a map of text positions to comment IDs
+    comment_map = {}  # text -> [comment_ids]
+    for seg in comment_segments:
+        if seg["comments"]:
+            comment_map[seg["text"]] = seg["comments"]
+
+    # Convert segments to TextRuns
     runs = []
-    for run in para.runs:
-        if run.text:
+    for seg in revision_segments:
+        if seg["text"]:
+            # Try to find matching comment info
+            comment_ids = comment_map.get(seg["text"], [])
+
             runs.append(
                 TextRun(
-                    text=run.text,
-                    bold=run.bold or False,
-                    italic=run.italic or False,
+                    text=seg["text"],
+                    bold=seg.get("bold", False),
+                    italic=seg.get("italic", False),
+                    revision=seg.get("revision"),
+                    comment_ids=comment_ids,
                 )
             )
+
+    # If no revision-aware segments found, fall back to simple parsing
+    if not runs:
+        for run in para.runs:
+            if run.text:
+                runs.append(
+                    TextRun(
+                        text=run.text,
+                        bold=run.bold or False,
+                        italic=run.italic or False,
+                    )
+                )
 
     # Detect heading level
     level = 0
@@ -279,20 +325,24 @@ def parse_table(
     return parsed_table
 
 
-def parse_docx(file_content: bytes) -> list:
+def parse_docx(file_content: bytes) -> tuple[list, dict]:
     """
-    Parse a DOCX file and return a list of document elements.
+    Parse a DOCX file and return a list of document elements and comments.
 
     Args:
         file_content: Raw bytes of the DOCX file
 
     Returns:
-        List of Paragraph, Table, and Section objects
+        Tuple of (list of Paragraph/Table/Section objects, dict of comments)
     """
     doc = Document(BytesIO(file_content))
     numbering_tracker = NumberingTracker(doc)
 
+    # Extract comments from the document
+    comments = extract_comments_from_docx(file_content)
+
     elements = []
+    para_index = 0
 
     # Build lookup maps for paragraphs and tables by their XML element
     para_map = {p._element: p for p in doc.paragraphs}
@@ -304,16 +354,17 @@ def parse_docx(file_content: bytes) -> list:
             # It's a paragraph
             if element in para_map:
                 p = para_map[element]
-                parsed = parse_paragraph(p, numbering_tracker)
+                parsed = parse_paragraph(p, numbering_tracker, para_index)
                 if parsed.runs or parsed.numbering:
                     elements.append(parsed)
+                para_index += 1
         elif element.tag == qn("w:tbl"):
             # It's a table
             if element in table_map:
                 t = table_map[element]
                 elements.append(parse_table(t, numbering_tracker))
 
-    return elements
+    return elements, comments
 
 
 def elements_to_dict(elements: list) -> list[dict]:
@@ -322,13 +373,19 @@ def elements_to_dict(elements: list) -> list[dict]:
 
     for elem in elements:
         if isinstance(elem, Paragraph):
+            runs_data = []
+            for r in elem.runs:
+                run_dict = {"text": r.text, "bold": r.bold, "italic": r.italic}
+                if r.revision:
+                    run_dict["revision"] = r.revision
+                if r.comment_ids:
+                    run_dict["commentIds"] = r.comment_ids
+                runs_data.append(run_dict)
+
             result.append(
                 {
                     "type": "paragraph",
-                    "runs": [
-                        {"text": r.text, "bold": r.bold, "italic": r.italic}
-                        for r in elem.runs
-                    ],
+                    "runs": runs_data,
                     "style": elem.style,
                     "numbering": elem.numbering,
                     "level": elem.level,

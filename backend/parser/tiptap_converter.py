@@ -23,6 +23,39 @@ def text_run_to_tiptap(run: TextRun) -> dict:
     if run.italic:
         marks.append({"type": "italic"})
 
+    # Add revision marks (track changes)
+    if run.revision:
+        rev = run.revision
+        if rev.get("type") == "insertion":
+            marks.append(
+                {
+                    "type": "insertion",
+                    "attrs": {
+                        "id": rev.get("id"),
+                        "author": rev.get("author"),
+                        "date": rev.get("date"),
+                    },
+                }
+            )
+        elif rev.get("type") == "deletion":
+            marks.append(
+                {
+                    "type": "deletion",
+                    "attrs": {
+                        "id": rev.get("id"),
+                        "author": rev.get("author"),
+                        "date": rev.get("date"),
+                    },
+                }
+            )
+
+    # Add comment marks
+    if run.comment_ids:
+        for comment_id in run.comment_ids:
+            marks.append(
+                {"type": "comment", "attrs": {"commentId": comment_id}}
+            )
+
     if marks:
         node["marks"] = marks
 
@@ -108,6 +141,43 @@ def convert_dict_element(elem: dict) -> dict:
                     marks.append({"type": "bold"})
                 if run.get("italic"):
                     marks.append({"type": "italic"})
+
+                # Handle revision marks
+                if run.get("revision"):
+                    rev = run["revision"]
+                    if rev.get("type") == "insertion":
+                        marks.append(
+                            {
+                                "type": "insertion",
+                                "attrs": {
+                                    "id": rev.get("id"),
+                                    "author": rev.get("author"),
+                                    "date": rev.get("date"),
+                                },
+                            }
+                        )
+                    elif rev.get("type") == "deletion":
+                        marks.append(
+                            {
+                                "type": "deletion",
+                                "attrs": {
+                                    "id": rev.get("id"),
+                                    "author": rev.get("author"),
+                                    "date": rev.get("date"),
+                                },
+                            }
+                        )
+
+                # Handle comment marks
+                if run.get("commentIds"):
+                    for comment_id in run["commentIds"]:
+                        marks.append(
+                            {
+                                "type": "comment",
+                                "attrs": {"commentId": comment_id},
+                            }
+                        )
+
                 if marks:
                     node["marks"] = marks
                 content.append(node)
