@@ -1,4 +1,4 @@
-.PHONY: install install-backend install-frontend dev dev-backend dev-frontend kill-ports stop clean sample help
+.PHONY: install install-backend install-frontend dev dev-backend dev-frontend kill-ports stop clean sample help build build-frontend build-lib
 
 # Absolute paths
 ROOT_DIR := $(shell pwd)
@@ -14,6 +14,9 @@ help:
 	@echo "  make dev              Start both servers (auto-kills processes on ports)"
 	@echo "  make dev-backend      Start only the backend server (port 8000)"
 	@echo "  make dev-frontend     Start only the frontend server (port 5173)"
+	@echo "  make build            Build both frontend app and library"
+	@echo "  make build-frontend   Build the frontend app for production"
+	@echo "  make build-lib        Build the reusable component library"
 	@echo "  make kill-ports       Kill any processes using ports 8000 and 5173"
 	@echo "  make stop             Stop all running servers"
 	@echo "  make sample           Create a sample Word document for testing"
@@ -58,6 +61,23 @@ dev-backend:
 dev-frontend:
 	@echo "Starting frontend server..."
 	cd $(FRONTEND_DIR) && npm run dev
+
+# Build both frontend app and library
+build: build-frontend build-lib
+	@echo "All builds complete"
+
+# Build frontend app for production
+build-frontend:
+	@echo "Building frontend app..."
+	cd $(FRONTEND_DIR) && npm run build
+	@echo "Frontend app built to $(FRONTEND_DIR)/dist"
+
+# Build reusable component library
+build-lib:
+	@echo "Building component library..."
+	cd $(FRONTEND_DIR) && npm run build:lib
+	@echo "Library built to $(FRONTEND_DIR)/dist"
+	@echo "Exports: index.js, index.cjs, index.d.ts"
 
 # Stop all servers
 stop:
