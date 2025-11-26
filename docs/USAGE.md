@@ -19,6 +19,7 @@ A comprehensive guide for integrating the dedit-react-editor component library i
 13. [Custom Extensions](#custom-extensions)
 14. [TypeScript Types](#typescript-types)
 15. [Complete Examples](#complete-examples)
+16. [AI-Assisted Editing](#ai-assisted-editing)
 
 ---
 
@@ -1335,6 +1336,243 @@ function CustomEditor({ initialContent, comments: commentData }) {
   );
 }
 ```
+
+---
+
+## AI-Assisted Editing
+
+The library includes optional AI components for integrating OpenAI-powered editing capabilities. These components use a **provider pattern** allowing them to be placed anywhere in your layout while still communicating.
+
+### AI Components Overview
+
+| Component | Purpose |
+|-----------|---------|
+| `AIEditorProvider` | Context provider - wrap your app with this |
+| `APIKeyInput` | Input for user's OpenAI API key |
+| `AIChatPanel` | Displays AI conversation history |
+| `PromptInput` | Text input for AI prompts with mode selector |
+
+### Quick Start with AI
+
+```tsx
+import {
+  AIEditorProvider,
+  useAIEditor,
+  APIKeyInput,
+  AIChatPanel,
+  PromptInput,
+} from 'dedit-react-editor/ai';
+import { DocumentEditor } from 'dedit-react-editor';
+
+function AIEditorApp() {
+  return (
+    <AIEditorProvider>
+      <AppContent />
+    </AIEditorProvider>
+  );
+}
+
+function AppContent() {
+  const { setEditor } = useAIEditor();
+
+  return (
+    <div className="ai-editor-layout">
+      {/* Settings area */}
+      <div className="settings">
+        <APIKeyInput showLabel />
+      </div>
+
+      {/* Editor area */}
+      <div className="editor">
+        <DocumentEditor
+          content={document}
+          onEditorReady={(editor) => setEditor(editor)}
+        />
+      </div>
+
+      {/* Chat area */}
+      <div className="chat">
+        <AIChatPanel showHeader headerTitle="AI Assistant" />
+      </div>
+
+      {/* Prompt area */}
+      <div className="prompt">
+        <PromptInput showModeSelector showSelectionIndicator />
+      </div>
+    </div>
+  );
+}
+```
+
+### Flexible Layout
+
+The key advantage of the AI components is that they can be placed **anywhere** in your component tree and still communicate:
+
+```tsx
+<AIEditorProvider>
+  <Header>
+    <APIKeyInput compact />  {/* In header */}
+  </Header>
+  
+  <Sidebar>
+    <AIChatPanel />          {/* In sidebar */}
+  </Sidebar>
+  
+  <Main>
+    <DocumentEditor ... />   {/* In main area */}
+  </Main>
+  
+  <Footer>
+    <PromptInput />          {/* In footer */}
+  </Footer>
+</AIEditorProvider>
+```
+
+### AI Modes
+
+The `PromptInput` component supports three modes:
+
+| Mode | Description |
+|------|-------------|
+| `targeted` | Edit selected text only |
+| `global` | Apply changes to entire document |
+| `analysis` | Ask questions without editing |
+
+### useAIEditor Hook
+
+Access AI state from any component:
+
+```typescript
+const {
+  // API Key
+  apiKey,           // Current key (or null)
+  setApiKey,        // Set/clear key
+
+  // Editor
+  editor,           // TipTap editor instance
+  setEditor,        // Register editor
+
+  // Selection
+  selectionContext, // {text, from, to, hasSelection}
+
+  // Chat
+  messages,         // Message history
+  addMessage,       // Add message
+  clearMessages,    // Clear history
+
+  // State
+  isLoading,        // Request in progress
+  error,            // Error message
+
+  // Actions
+  sendPrompt,       // Send to AI: (prompt, mode) => Promise
+  applyEdit,        // Apply replacement text
+} = useAIEditor();
+```
+
+### Component Props
+
+#### APIKeyInput
+
+```tsx
+<APIKeyInput
+  className=""       // Additional CSS class
+  showLabel={true}   // Show "OpenAI API Key" label
+  compact={false}    // Compact mode (status + change button)
+/>
+```
+
+#### AIChatPanel
+
+```tsx
+<AIChatPanel
+  className=""              // Additional CSS class
+  showHeader={true}         // Show header with title
+  headerTitle="AI Chat"     // Header title
+  maxHeight="400px"         // Max height for messages
+/>
+```
+
+#### PromptInput
+
+```tsx
+<PromptInput
+  className=""                  // Additional CSS class
+  showModeSelector={true}       // Show Targeted/Global/Analysis buttons
+  defaultMode="targeted"        // Default mode
+  placeholder=""                // Custom placeholder
+  showSelectionIndicator={true} // Show selection status
+/>
+```
+
+### AI Response Format
+
+When requesting edits, the AI returns replacement text in a code block:
+
+````
+Here's a clearer version of the text:
+
+```replacement
+Your improved text goes here.
+```
+````
+
+The `AIChatPanel` detects this format and shows an "Apply Edit" button.
+
+### Security Notes
+
+- API key is stored in browser `localStorage`
+- Key is sent directly to OpenAI, never to any backend
+- Users are responsible for their own API usage
+- Recommend users set spending limits on their API keys
+
+### CSS Classes
+
+AI components use these CSS classes for styling:
+
+```css
+/* API Key Input */
+.api-key-input
+.api-key-input--compact
+.api-key-label
+.api-key-form
+.api-key-btn
+
+/* Chat Panel */
+.ai-chat-panel
+.ai-chat-header
+.ai-chat-messages
+.chat-message
+.chat-message--user
+.chat-message--assistant
+.replacement-preview
+.replacement-apply-btn
+
+/* Prompt Input */
+.prompt-input
+.prompt-mode-selector
+.prompt-mode-btn
+.prompt-textarea
+.prompt-submit-btn
+.selection-indicator
+```
+
+### Layout Classes
+
+Pre-built layout classes for common configurations:
+
+```css
+/* Three-column: settings | editor | chat */
+.ai-editor-layout--three-column
+
+/* Two-column: editor | sidebar */
+.ai-editor-layout--two-column
+
+/* Stacked (mobile) */
+.ai-editor-layout--stacked
+```
+
+For full AI component documentation, see `docs/AI_EDITOR_DEMO.md`.
 
 ---
 

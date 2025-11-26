@@ -357,7 +357,7 @@ function AppContent() {
 
         {/* Prompt Area - Input at bottom */}
         <div className="ai-prompt-area">
-          <PromptInput showModeSelector showSelectionIndicator />
+          <PromptInput showSelectionIndicator />
         </div>
       </div>
     </div>
@@ -367,7 +367,7 @@ function AppContent() {
 // Main App wraps everything in AIEditorProvider
 function App() {
   return (
-    <AIEditorProvider>
+    <AIEditorProvider aiAuthorName="AI Assistant">
       <AppContent />
     </AIEditorProvider>
   );

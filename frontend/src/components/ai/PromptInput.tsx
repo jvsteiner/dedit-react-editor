@@ -1,12 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAIEditor } from "../../context/AIEditorContext";
 
-type PromptMode = "targeted" | "global" | "analysis";
-
 interface PromptInputProps {
   className?: string;
-  showModeSelector?: boolean;
-  defaultMode?: PromptMode;
   placeholder?: string;
   showSelectionIndicator?: boolean;
 }
@@ -14,15 +10,17 @@ interface PromptInputProps {
 /**
  * PromptInput - A separable component for entering AI prompts
  *
- * This component can be placed anywhere in your layout as long as it's
- * wrapped by an AIEditorProvider. It provides a text input for entering
- * prompts and mode selection for different types of AI operations.
+ * This component automatically detects whether to apply targeted or global edits
+ * based on whether the user has selected text in the editor.
+ *
+ * - If text is selected: AI will target that specific text
+ * - If no selection: AI will apply changes globally or answer questions
  *
  * Usage:
  * ```tsx
  * <AIEditorProvider>
  *   <div className="bottom-bar">
- *     <PromptInput showModeSelector showSelectionIndicator />
+ *     <PromptInput showSelectionIndicator />
  *   </div>
  *   <div className="main">
  *     <DocumentEditor ... />
@@ -32,14 +30,11 @@ interface PromptInputProps {
  */
 export function PromptInput({
   className = "",
-  showModeSelector = true,
-  defaultMode = "targeted",
   placeholder,
   showSelectionIndicator = true,
 }: PromptInputProps) {
   const { sendPrompt, isLoading, apiKey, selectionContext } = useAIEditor();
   const [prompt, setPrompt] = useState("");
-  const [mode, setMode] = useState<PromptMode>(defaultMode);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-resize textarea
@@ -56,10 +51,10 @@ export function PromptInput({
       e?.preventDefault();
       if (!prompt.trim() || isLoading || !apiKey) return;
 
-      await sendPrompt(prompt.trim(), mode);
+      await sendPrompt(prompt.trim());
       setPrompt("");
     },
-    [prompt, isLoading, apiKey, sendPrompt, mode]
+    [prompt, isLoading, apiKey, sendPrompt],
   );
 
   const handleKeyDown = useCallback(
@@ -69,7 +64,7 @@ export function PromptInput({
         handleSubmit();
       }
     },
-    [handleSubmit]
+    [handleSubmit],
   );
 
   const getPlaceholder = (): string => {
@@ -79,99 +74,18 @@ export function PromptInput({
       return "Enter your OpenAI API key first...";
     }
 
-    switch (mode) {
-      case "targeted":
-        return selectionContext.hasSelection
-          ? `Rewrite "${selectionContext.text.slice(0, 30)}${selectionContext.text.length > 30 ? "..." : ""}"...`
-          : "Select text in the editor, then describe how to change it...";
-      case "global":
-        return "Describe changes to apply to the entire document...";
-      case "analysis":
-        return "Ask a question about the document...";
-      default:
-        return "Enter a prompt...";
+    if (selectionContext.hasSelection) {
+      const truncatedText = selectionContext.text.slice(0, 30);
+      const ellipsis = selectionContext.text.length > 30 ? "..." : "";
+      return `Edit "${truncatedText}${ellipsis}" or ask about it...`;
     }
-  };
 
-  const getModeDescription = (): string => {
-    switch (mode) {
-      case "targeted":
-        return "Edit selected text";
-      case "global":
-        return "Edit entire document";
-      case "analysis":
-        return "Analyze & ask questions";
-      default:
-        return "";
-    }
+    return "Ask a question or request document-wide changes...";
   };
 
   return (
     <div className={`prompt-input ${className}`}>
-      {showModeSelector && (
-        <div className="prompt-mode-selector">
-          <button
-            type="button"
-            className={`prompt-mode-btn ${mode === "targeted" ? "active" : ""}`}
-            onClick={() => setMode("targeted")}
-            title="Edit selected text"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-            Targeted
-          </button>
-          <button
-            type="button"
-            className={`prompt-mode-btn ${mode === "global" ? "active" : ""}`}
-            onClick={() => setMode("global")}
-            title="Edit entire document"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            Global
-          </button>
-          <button
-            type="button"
-            className={`prompt-mode-btn ${mode === "analysis" ? "active" : ""}`}
-            onClick={() => setMode("analysis")}
-            title="Analyze & ask questions"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            Analysis
-          </button>
-        </div>
-      )}
-
-      {showSelectionIndicator && mode === "targeted" && (
+      {showSelectionIndicator && (
         <div className="prompt-selection-indicator">
           {selectionContext.hasSelection ? (
             <span className="selection-active">
@@ -185,7 +99,8 @@ export function PromptInput({
               >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              {selectionContext.text.length} characters selected
+              {selectionContext.text.length} characters selected — edits will
+              target this text
             </span>
           ) : (
             <span className="selection-hint">
@@ -197,11 +112,11 @@ export function PromptInput({
                 stroke="currentColor"
                 strokeWidth="2"
               >
-                <path d="M5.52 19c.64-2.2 1.84-3 3.22-3h6.52c1.38 0 2.58.8 3.22 3" />
-                <circle cx="12" cy="10" r="3" />
                 <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
               </svg>
-              Select text to edit
+              No selection — edits will apply globally
             </span>
           )}
         </div>
@@ -223,7 +138,7 @@ export function PromptInput({
             type="submit"
             className="prompt-submit-btn"
             disabled={!prompt.trim() || isLoading || !apiKey}
-            title={getModeDescription()}
+            title="Send prompt"
           >
             {isLoading ? (
               <svg

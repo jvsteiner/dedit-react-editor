@@ -16,6 +16,9 @@ export {
 
 export type {
   AIEditorState,
+  AIEditorConfig,
   ChatMessage,
   SelectionContext,
+  AIEdit,
+  AIResponse,
 } from "../../context/AIEditorContext";

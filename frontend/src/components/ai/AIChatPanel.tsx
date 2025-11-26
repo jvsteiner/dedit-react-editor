@@ -1,5 +1,9 @@
 import { useRef, useEffect, useCallback } from "react";
-import { useAIEditor, ChatMessage } from "../../context/AIEditorContext";
+import {
+  useAIEditor,
+  ChatMessage,
+  AIEdit,
+} from "../../context/AIEditorContext";
 
 interface AIChatPanelProps {
   className?: string;
@@ -11,9 +15,9 @@ interface AIChatPanelProps {
 /**
  * AIChatPanel - A separable component for displaying AI chat messages
  *
- * This component can be placed anywhere in your layout as long as it's
- * wrapped by an AIEditorProvider. It displays the conversation history
- * and allows applying suggested edits.
+ * This component displays the conversation history and shows clickable links
+ * for each AI-suggested edit. Clicking a link scrolls the editor to that
+ * edit and selects it for review.
  *
  * Usage:
  * ```tsx
@@ -33,7 +37,8 @@ export function AIChatPanel({
   headerTitle = "AI Chat",
   maxHeight = "400px",
 }: AIChatPanelProps) {
-  const { messages, isLoading, error, applyEdit, clearMessages } = useAIEditor();
+  const { messages, isLoading, error, clearMessages, goToEditAndSelect } =
+    useAIEditor();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -41,30 +46,59 @@ export function AIChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Extract replacement from assistant message
-  const extractReplacement = useCallback((content: string): string | null => {
-    const match = content.match(/```replacement\n([\s\S]*?)\n```/);
-    return match ? match[1] : null;
-  }, []);
-
-  const handleApplyEdit = useCallback(
-    (replacement: string) => {
-      applyEdit(replacement);
+  const handleEditClick = useCallback(
+    (edit: AIEdit) => {
+      goToEditAndSelect(edit);
     },
-    [applyEdit]
+    [goToEditAndSelect],
   );
 
-  const renderMessage = (message: ChatMessage) => {
-    const replacement = message.role === "assistant" ? extractReplacement(message.content) : null;
+  const renderEditLink = (edit: AIEdit, index: number) => {
+    const displayText =
+      edit.reason ||
+      `${edit.originalText.slice(0, 20)}${edit.originalText.length > 20 ? "..." : ""} → ${edit.replacement.slice(0, 20)}${edit.replacement.length > 20 ? "..." : ""}`;
 
-    // Format content - remove the code block if we're showing an Apply button
-    let displayContent = message.content;
-    if (replacement) {
-      displayContent = message.content.replace(/```replacement\n[\s\S]*?\n```/, "").trim();
-      if (!displayContent) {
-        displayContent = "Here's my suggested edit:";
-      }
-    }
+    return (
+      <button
+        key={edit.id || index}
+        type="button"
+        className={`edit-link edit-link--${edit.status}`}
+        onClick={() => handleEditClick(edit)}
+        title={`Original: "${edit.originalText}"\nReplacement: "${edit.replacement}"`}
+      >
+        <span className="edit-link-icon">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        </span>
+        <span className="edit-link-text">{displayText}</span>
+        <span className="edit-link-arrow">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </span>
+      </button>
+    );
+  };
+
+  const renderMessage = (message: ChatMessage) => {
+    const edits = message.metadata?.edits;
+    const hasEdits = edits && edits.length > 0;
 
     return (
       <div
@@ -87,30 +121,21 @@ export function AIChatPanel({
           </span>
         </div>
 
-        <div className="chat-message-content">
-          {displayContent}
+        <div className="chat-message-content">{message.content}</div>
 
-          {message.metadata?.selectionContext?.hasSelection && (
-            <div className="chat-message-context">
-              <span className="context-label">Selected:</span>
-              <span className="context-text">
-                "{message.metadata.selectionContext.text.slice(0, 50)}
-                {message.metadata.selectionContext.text.length > 50 ? "..." : ""}"
-              </span>
-            </div>
-          )}
-        </div>
+        {message.metadata?.selectionContext?.hasSelection && (
+          <div className="chat-message-context">
+            <span className="context-label">Selected:</span>
+            <span className="context-text">
+              "{message.metadata.selectionContext.text.slice(0, 50)}
+              {message.metadata.selectionContext.text.length > 50 ? "..." : ""}"
+            </span>
+          </div>
+        )}
 
-        {replacement && (
-          <div className="chat-message-replacement">
-            <div className="replacement-preview">
-              <pre>{replacement.slice(0, 200)}{replacement.length > 200 ? "..." : ""}</pre>
-            </div>
-            <button
-              type="button"
-              className="replacement-apply-btn"
-              onClick={() => handleApplyEdit(replacement)}
-            >
+        {hasEdits && (
+          <div className="chat-message-edits">
+            <div className="edits-header">
               <svg
                 width="14"
                 height="14"
@@ -119,10 +144,17 @@ export function AIChatPanel({
                 stroke="currentColor"
                 strokeWidth="2"
               >
-                <polyline points="20 6 9 17 4 12" />
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-              Apply Edit
-            </button>
+              {edits.length} edit{edits.length !== 1 ? "s" : ""} suggested
+              <span className="edits-hint">
+                (click to review, then Accept/Reject)
+              </span>
+            </div>
+            <div className="edits-list">
+              {edits.map((edit, index) => renderEditLink(edit, index))}
+            </div>
           </div>
         )}
       </div>
@@ -172,7 +204,8 @@ export function AIChatPanel({
             </svg>
             <p>No messages yet</p>
             <p className="ai-chat-empty-hint">
-              Use the prompt input to start a conversation
+              Select text for targeted edits, or just ask for document-wide
+              changes
             </p>
           </div>
         ) : (

@@ -1,7 +1,7 @@
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { useEffect, useMemo, useCallback, useRef, useState } from "react";
 import Document from "@tiptap/extension-document";
-import Paragraph from "@tiptap/extension-paragraph";
+import { ParagraphWithId } from "../extensions/ParagraphWithId";
 import Text from "@tiptap/extension-text";
 import Heading from "@tiptap/extension-heading";
 import Bold from "@tiptap/extension-bold";
@@ -61,7 +61,7 @@ export function DocumentEditor({
     {
       extensions: [
         Document,
-        Paragraph,
+        ParagraphWithId,
         Text,
         Heading.configure({
           levels: [1, 2, 3, 4, 5, 6],
@@ -184,6 +184,69 @@ export function DocumentEditor({
 
   // Track selected change ID for CSS-based highlighting
   const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
+
+  // Function to select a change by its ID (used by AI chat panel)
+  const selectChangeById = useCallback(
+    (changeId: string) => {
+      if (!editor) return;
+
+      const editorDom = editor.view.dom;
+
+      // Find the element with the matching change ID
+      const walker = document.createTreeWalker(
+        editorDom,
+        NodeFilter.SHOW_ELEMENT,
+        {
+          acceptNode: (node) => {
+            const el = node as Element;
+            if (
+              (el.tagName === "INS" && el.classList.contains("insertion")) ||
+              (el.tagName === "DEL" && el.classList.contains("deletion"))
+            ) {
+              return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_SKIP;
+          },
+        },
+      );
+
+      let index = 0;
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const el = node as Element;
+        const isInsertion = el.tagName === "INS";
+        const id = el.getAttribute(
+          isInsertion ? "data-insertion-id" : "data-deletion-id",
+        );
+
+        if (id === changeId) {
+          setCurrentChangeIndex(index);
+          setSelectedChangeId(changeId);
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          return;
+        }
+        index++;
+      }
+    },
+    [editor],
+  );
+
+  // Listen for AI-triggered change selection events
+  useEffect(() => {
+    const handleAISelectChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        index: number;
+        changeId: string;
+      }>;
+      const { changeId } = customEvent.detail;
+      selectChangeById(changeId);
+    };
+
+    window.addEventListener("ai-select-change", handleAISelectChange);
+    return () => {
+      window.removeEventListener("ai-select-change", handleAISelectChange);
+    };
+  }, [selectChangeById]);
 
   const goToChange = useCallback(
     (index: number) => {
