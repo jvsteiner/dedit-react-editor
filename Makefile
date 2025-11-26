@@ -108,30 +108,30 @@ clean:
 # Version bumping (updates package.json, commits, and tags)
 version-patch:
 	@echo "Bumping patch version..."
-	cd $(FRONTEND_DIR) && npm version patch --no-git-tag-version
-	$(eval VERSION := $(shell cd $(FRONTEND_DIR) && node -p "require('./package.json').version"))
-	git add $(FRONTEND_DIR)/package.json
-	git commit -m "Bump version to v$(VERSION)"
-	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-	@echo "Version bumped to v$(VERSION) and tagged"
+	@cd $(FRONTEND_DIR) && npm version patch --no-git-tag-version
+	@VERSION=$$(cd $(FRONTEND_DIR) && node -p "require('./package.json').version") && \
+		git add $(FRONTEND_DIR)/package.json && \
+		git commit -m "Bump version to v$$VERSION" && \
+		git tag -a "v$$VERSION" -m "Release v$$VERSION" && \
+		echo "Version bumped to v$$VERSION and tagged"
 
 version-minor:
 	@echo "Bumping minor version..."
-	cd $(FRONTEND_DIR) && npm version minor --no-git-tag-version
-	$(eval VERSION := $(shell cd $(FRONTEND_DIR) && node -p "require('./package.json').version"))
-	git add $(FRONTEND_DIR)/package.json
-	git commit -m "Bump version to v$(VERSION)"
-	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-	@echo "Version bumped to v$(VERSION) and tagged"
+	@cd $(FRONTEND_DIR) && npm version minor --no-git-tag-version
+	@VERSION=$$(cd $(FRONTEND_DIR) && node -p "require('./package.json').version") && \
+		git add $(FRONTEND_DIR)/package.json && \
+		git commit -m "Bump version to v$$VERSION" && \
+		git tag -a "v$$VERSION" -m "Release v$$VERSION" && \
+		echo "Version bumped to v$$VERSION and tagged"
 
 version-major:
 	@echo "Bumping major version..."
-	cd $(FRONTEND_DIR) && npm version major --no-git-tag-version
-	$(eval VERSION := $(shell cd $(FRONTEND_DIR) && node -p "require('./package.json').version"))
-	git add $(FRONTEND_DIR)/package.json
-	git commit -m "Bump version to v$(VERSION)"
-	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-	@echo "Version bumped to v$(VERSION) and tagged"
+	@cd $(FRONTEND_DIR) && npm version major --no-git-tag-version
+	@VERSION=$$(cd $(FRONTEND_DIR) && node -p "require('./package.json').version") && \
+		git add $(FRONTEND_DIR)/package.json && \
+		git commit -m "Bump version to v$$VERSION" && \
+		git tag -a "v$$VERSION" -m "Release v$$VERSION" && \
+		echo "Version bumped to v$$VERSION and tagged"
 
 # Publish to npm
 publish: build-lib
