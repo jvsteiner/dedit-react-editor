@@ -91,6 +91,8 @@ body {
     font-weight: 500;
     font-size: 0.875rem;
     color: #666;
+    display: flex;
+    align-items: center;
 }
 
 .editor-content {
@@ -971,4 +973,622 @@ del.selected-change,
 .template-upload-btn:hover {
     border-color: #999;
     background: #fafafa;
+}
+
+/* ================================
+   AI Editor Components
+   ================================ */
+
+/* API Key Input */
+.api-key-input {
+    padding: 1rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.api-key-input--compact {
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.api-key-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 0.5rem;
+}
+
+.api-key-status {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+}
+
+.api-key-status--set {
+    color: #28a745;
+}
+
+.api-key-display {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.api-key-value {
+    font-family: monospace;
+    font-size: 0.875rem;
+    color: #555;
+    background: #f5f5f5;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.api-key-form {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.api-key-input-field {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.api-key-input-field:focus {
+    outline: none;
+    border-color: #0066cc;
+}
+
+.api-key-btn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    color: #555;
+    transition: all 0.15s;
+}
+
+.api-key-btn:hover {
+    background: #f5f5f5;
+    border-color: #ccc;
+}
+
+.api-key-btn--primary {
+    background: #0066cc;
+    border-color: #0066cc;
+    color: white;
+}
+
+.api-key-btn--primary:hover {
+    background: #0052a3;
+}
+
+.api-key-btn--primary:disabled {
+    background: #ccc;
+    border-color: #ccc;
+    cursor: not-allowed;
+}
+
+.api-key-btn--danger {
+    color: #dc3545;
+}
+
+.api-key-btn--danger:hover {
+    background: #f8d7da;
+    border-color: #dc3545;
+}
+
+.api-key-btn--icon {
+    padding: 0.375rem;
+}
+
+.api-key-btn--small {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.api-key-hint {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.75rem;
+    color: #888;
+}
+
+/* AI Chat Panel */
+.ai-chat-panel {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ai-chat-header {
+    padding: 0.75rem 1rem;
+    background: #f8f8f8;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ai-chat-title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #666;
+}
+
+.ai-chat-clear-btn {
+    padding: 0.25rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: #888;
+    border-radius: 4px;
+    transition: all 0.15s;
+}
+
+.ai-chat-clear-btn:hover {
+    background: #eee;
+    color: #555;
+}
+
+.ai-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.ai-chat-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: #999;
+    text-align: center;
+}
+
+.ai-chat-empty svg {
+    opacity: 0.5;
+    margin-bottom: 0.5rem;
+}
+
+.ai-chat-empty p {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.ai-chat-empty-hint {
+    font-size: 0.75rem !important;
+    margin-top: 0.25rem !important;
+}
+
+.ai-chat-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: #f8d7da;
+    color: #721c24;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    margin: 0.5rem;
+}
+
+/* Chat Messages */
+.chat-message {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+}
+
+.chat-message--user {
+    background: #e7f3ff;
+    margin-left: 1rem;
+}
+
+.chat-message--assistant {
+    background: #f5f5f5;
+    margin-right: 1rem;
+}
+
+.chat-message--system {
+    background: #fff3cd;
+    font-size: 0.8125rem;
+}
+
+.chat-message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.375rem;
+}
+
+.chat-message-role {
+    font-weight: 500;
+    font-size: 0.75rem;
+    color: #555;
+}
+
+.chat-message-time {
+    font-size: 0.6875rem;
+    color: #999;
+}
+
+.chat-message-content {
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat-message-context {
+    margin-top: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+.context-label {
+    font-weight: 500;
+    color: #666;
+    margin-right: 0.25rem;
+}
+
+.context-text {
+    font-style: italic;
+    color: #555;
+}
+
+/* Replacement Preview */
+.chat-message-replacement {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.replacement-preview {
+    background: #282c34;
+    color: #abb2bf;
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    overflow-x: auto;
+}
+
+.replacement-preview pre {
+    margin: 0;
+    font-size: 0.75rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.replacement-apply-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border: none;
+    border-radius: 6px;
+    background: #28a745;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.replacement-apply-btn:hover {
+    background: #218838;
+}
+
+/* Loading indicator */
+.chat-message--loading {
+    padding: 1rem;
+}
+
+.chat-loading-indicator {
+    display: flex;
+    gap: 4px;
+}
+
+.chat-loading-indicator span {
+    width: 8px;
+    height: 8px;
+    background: #999;
+    border-radius: 50%;
+    animation: chatBounce 1.4s infinite ease-in-out both;
+}
+
+.chat-loading-indicator span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.chat-loading-indicator span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes chatBounce {
+    0%,
+    80%,
+    100% {
+        transform: scale(0);
+    }
+    40% {
+        transform: scale(1);
+    }
+}
+
+/* Prompt Input */
+.prompt-input {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 0.75rem;
+}
+
+.prompt-mode-selector {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #eee;
+}
+
+.prompt-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    color: #555;
+    transition: all 0.15s;
+}
+
+.prompt-mode-btn:hover {
+    background: #f5f5f5;
+    border-color: #ccc;
+}
+
+.prompt-mode-btn.active {
+    background: #e7f3ff;
+    border-color: #0066cc;
+    color: #0066cc;
+}
+
+.prompt-selection-indicator {
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.selection-active {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #28a745;
+}
+
+.selection-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #888;
+}
+
+.prompt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.prompt-input-wrapper {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.prompt-textarea {
+    flex: 1;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    resize: none;
+    font-family: inherit;
+    line-height: 1.4;
+    min-height: 40px;
+    max-height: 120px;
+}
+
+.prompt-textarea:focus {
+    outline: none;
+    border-color: #0066cc;
+}
+
+.prompt-textarea:disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+}
+
+.prompt-submit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 6px;
+    background: #0066cc;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    flex-shrink: 0;
+}
+
+.prompt-submit-btn:hover:not(:disabled) {
+    background: #0052a3;
+}
+
+.prompt-submit-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.prompt-loading-icon {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.prompt-hint {
+    font-size: 0.6875rem;
+    color: #999;
+    margin: 0;
+}
+
+/* ================================
+   AI Editor Layout Examples
+   ================================ */
+
+/* Flexible layout container for AI editor demo */
+.ai-editor-layout {
+    display: grid;
+    gap: 1rem;
+    min-height: 600px;
+}
+
+/* Three-column layout: sidebar | editor | chat */
+.ai-editor-layout--three-column {
+    grid-template-columns: 280px 1fr 320px;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+        "settings editor chat"
+        "settings editor chat"
+        "prompt   prompt prompt";
+}
+
+.ai-editor-layout--three-column .ai-settings-area {
+    grid-area: settings;
+}
+
+.ai-editor-layout--three-column .ai-editor-area {
+    grid-area: editor;
+}
+
+.ai-editor-layout--three-column .ai-chat-area {
+    grid-area: chat;
+}
+
+.ai-editor-layout--three-column .ai-prompt-area {
+    grid-area: prompt;
+}
+
+/* Two-column layout: editor | sidebar */
+.ai-editor-layout--two-column {
+    grid-template-columns: 1fr 360px;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+        "editor settings"
+        "editor chat"
+        "prompt prompt";
+}
+
+.ai-editor-layout--two-column .ai-settings-area {
+    grid-area: settings;
+}
+
+.ai-editor-layout--two-column .ai-editor-area {
+    grid-area: editor;
+}
+
+.ai-editor-layout--two-column .ai-chat-area {
+    grid-area: chat;
+}
+
+.ai-editor-layout--two-column .ai-prompt-area {
+    grid-area: prompt;
+}
+
+/* Stacked layout for mobile */
+.ai-editor-layout--stacked {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+        "settings"
+        "editor"
+        "chat"
+        "prompt";
+}
+
+.ai-editor-layout--stacked .ai-settings-area {
+    grid-area: settings;
+}
+
+.ai-editor-layout--stacked .ai-editor-area {
+    grid-area: editor;
+    min-height: 300px;
+}
+
+.ai-editor-layout--stacked .ai-chat-area {
+    grid-area: chat;
+}
+
+.ai-editor-layout--stacked .ai-prompt-area {
+    grid-area: prompt;
+    position: sticky;
+    bottom: 0;
+    background: #f5f5f5;
+    padding: 0.5rem 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+    .ai-editor-layout--three-column {
+        grid-template-columns: 1fr 320px;
+        grid-template-areas:
+            "editor settings"
+            "editor chat"
+            "prompt prompt";
+    }
+
+    .ai-editor-layout--three-column .ai-settings-area {
+        /* Settings moves to right sidebar */
+    }
+}
+
+@media (max-width: 900px) {
+    .ai-editor-layout--three-column,
+    .ai-editor-layout--two-column {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "settings"
+            "editor"
+            "chat"
+            "prompt";
+    }
 }

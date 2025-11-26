@@ -2,6 +2,13 @@ import { useState, useCallback } from "react";
 import { Editor } from "@tiptap/react";
 import DocumentEditor from "./components/DocumentEditor";
 import FileUpload from "./components/FileUpload";
+import {
+  AIEditorProvider,
+  useAIEditor,
+  APIKeyInput,
+  AIChatPanel,
+  PromptInput,
+} from "./components/ai";
 
 interface CommentData {
   id: string;
@@ -26,12 +33,14 @@ interface TemplateData {
 
 type TemplateOption = "none" | "original" | "custom";
 
-function App() {
+// Inner component that uses the AI context
+function AppContent() {
+  const { setEditor } = useAIEditor();
+
   const [document, setDocument] = useState<DocumentData | null>(null);
   const [editorJson, setEditorJson] = useState<Record<string, unknown> | null>(
     null,
   );
-  const [, setEditor] = useState<Editor | null>(null);
   const [comments, setComments] = useState<CommentData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -42,10 +51,15 @@ function App() {
     null,
   );
   const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
+  const [showJson, setShowJson] = useState(false);
 
-  const handleEditorReady = useCallback((editorInstance: Editor) => {
-    setEditor(editorInstance);
-  }, []);
+  const handleEditorReady = useCallback(
+    (editorInstance: Editor) => {
+      // Register editor with AI context
+      setEditor(editorInstance);
+    },
+    [setEditor],
+  );
 
   const handleUpload = async (file: File) => {
     setIsLoading(true);
@@ -171,8 +185,8 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Document Editor PoC</h1>
-        <p>Upload a Word document to convert and edit</p>
+        <h1>AI Document Editor</h1>
+        <p>Upload a Word document and use AI to edit and analyze</p>
       </header>
 
       <section className="upload-section">
@@ -260,46 +274,102 @@ function App() {
 
       {error && <div className="error">{error}</div>}
 
-      <div className="editor-container-simple">
-        <div className="editor-panel">
-          <div className="panel-header">Editor</div>
-          <div className="editor-content">
-            <DocumentEditor
-              content={document?.tiptap || null}
-              onUpdate={handleEditorUpdate}
-              onEditorReady={handleEditorReady}
-              toolbar={[
-                "bold",
-                "italic",
-                "separator",
-                "trackChangesToggle",
-                "separator",
-                "prevChange",
-                "nextChange",
-                "acceptChange",
-                "rejectChange",
-                "separator",
-                "acceptAll",
-                "rejectAll",
-              ]}
-              trackChangesEnabled={trackChangesEnabled}
-              onTrackChangesToggle={setTrackChangesEnabled}
-            />
+      {/* AI Editor Layout - Components in separate areas */}
+      <div className="ai-editor-layout ai-editor-layout--two-column">
+        {/* Settings Area - API Key */}
+        <div className="ai-settings-area">
+          <APIKeyInput showLabel />
+        </div>
+
+        {/* Editor Area */}
+        <div className="ai-editor-area">
+          <div className="editor-panel">
+            <div className="panel-header">
+              <span>Editor</span>
+              <button
+                type="button"
+                onClick={() => setShowJson(!showJson)}
+                style={{
+                  marginLeft: "auto",
+                  padding: "0.25rem 0.5rem",
+                  fontSize: "0.75rem",
+                  background: showJson ? "#e0e0e0" : "transparent",
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                {showJson ? "Hide JSON" : "Show JSON"}
+              </button>
+            </div>
+            <div className="editor-content">
+              <DocumentEditor
+                content={document?.tiptap || null}
+                onUpdate={handleEditorUpdate}
+                onEditorReady={handleEditorReady}
+                toolbar={[
+                  "bold",
+                  "italic",
+                  "separator",
+                  "trackChangesToggle",
+                  "separator",
+                  "prevChange",
+                  "nextChange",
+                  "acceptChange",
+                  "rejectChange",
+                  "separator",
+                  "acceptAll",
+                  "rejectAll",
+                ]}
+                trackChangesEnabled={trackChangesEnabled}
+                onTrackChangesToggle={setTrackChangesEnabled}
+              />
+            </div>
+            {showJson && (
+              <div
+                className="json-content"
+                style={{ borderTop: "1px solid #eee" }}
+              >
+                <pre
+                  style={{
+                    fontSize: "0.7rem",
+                    maxHeight: "200px",
+                    overflow: "auto",
+                  }}
+                >
+                  {editorJson
+                    ? JSON.stringify(editorJson, null, 2)
+                    : JSON.stringify({ type: "doc", content: [] }, null, 2)}
+                </pre>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="json-panel">
-          <div className="panel-header">Tiptap JSON</div>
-          <div className="json-content">
-            <pre>
-              {editorJson
-                ? JSON.stringify(editorJson, null, 2)
-                : JSON.stringify({ type: "doc", content: [] }, null, 2)}
-            </pre>
-          </div>
+        {/* Chat Area - Conversation history */}
+        <div className="ai-chat-area">
+          <AIChatPanel
+            showHeader
+            headerTitle="AI Assistant"
+            maxHeight="350px"
+          />
+        </div>
+
+        {/* Prompt Area - Input at bottom */}
+        <div className="ai-prompt-area">
+          <PromptInput showModeSelector showSelectionIndicator />
         </div>
       </div>
     </div>
+  );
+}
+
+// Main App wraps everything in AIEditorProvider
+function App() {
+  return (
+    <AIEditorProvider>
+      <AppContent />
+    </AIEditorProvider>
   );
 }
 
