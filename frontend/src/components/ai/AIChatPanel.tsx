@@ -37,8 +37,15 @@ export function AIChatPanel({
   headerTitle = "AI Chat",
   maxHeight = "400px",
 }: AIChatPanelProps) {
-  const { messages, isLoading, error, clearMessages, goToEditAndSelect } =
-    useAIEditor();
+  const {
+    messages,
+    isLoading,
+    error,
+    clearMessages,
+    goToEditAndSelect,
+    acceptEdit,
+    rejectEdit,
+  } = useAIEditor();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -53,46 +60,138 @@ export function AIChatPanel({
     [goToEditAndSelect],
   );
 
+  const handleAccept = useCallback(
+    (e: React.MouseEvent, edit: AIEdit) => {
+      e.stopPropagation();
+      acceptEdit(edit);
+    },
+    [acceptEdit],
+  );
+
+  const handleReject = useCallback(
+    (e: React.MouseEvent, edit: AIEdit) => {
+      e.stopPropagation();
+      rejectEdit(edit);
+    },
+    [rejectEdit],
+  );
+
   const renderEditLink = (edit: AIEdit, index: number) => {
-    const displayText =
-      edit.reason ||
-      `${edit.originalText.slice(0, 20)}${edit.originalText.length > 20 ? "..." : ""} → ${edit.replacement.slice(0, 20)}${edit.replacement.length > 20 ? "..." : ""}`;
+    // Format: "deleted → inserted" or just one side if pure add/delete
+    let displayText: string;
+    if (edit.deletedText && edit.insertedText) {
+      // Replacement: show both
+      const del =
+        edit.deletedText.length > 15
+          ? edit.deletedText.slice(0, 15) + "..."
+          : edit.deletedText;
+      const ins =
+        edit.insertedText.length > 15
+          ? edit.insertedText.slice(0, 15) + "..."
+          : edit.insertedText;
+      displayText = `${del} → ${ins}`;
+    } else if (edit.deletedText) {
+      // Pure deletion
+      const del =
+        edit.deletedText.length > 30
+          ? edit.deletedText.slice(0, 30) + "..."
+          : edit.deletedText;
+      displayText = `−${del}`;
+    } else if (edit.insertedText) {
+      // Pure insertion
+      const ins =
+        edit.insertedText.length > 30
+          ? edit.insertedText.slice(0, 30) + "..."
+          : edit.insertedText;
+      displayText = `+${ins}`;
+    } else {
+      displayText = edit.reason || "Edit";
+    }
+
+    const tooltipLines: string[] = [];
+    if (edit.deletedText) tooltipLines.push(`Deleted: "${edit.deletedText}"`);
+    if (edit.insertedText)
+      tooltipLines.push(`Inserted: "${edit.insertedText}"`);
+    if (edit.reason) tooltipLines.push(`Reason: ${edit.reason}`);
+
+    const isResolved = edit.status === "accepted" || edit.status === "rejected";
 
     return (
-      <button
+      <div
         key={edit.id || index}
-        type="button"
-        className={`edit-link edit-link--${edit.status}`}
-        onClick={() => handleEditClick(edit)}
-        title={`Original: "${edit.originalText}"\nReplacement: "${edit.replacement}"`}
+        className={`edit-row edit-row--${edit.status}`}
       >
-        <span className="edit-link-icon">
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
-        </span>
-        <span className="edit-link-text">{displayText}</span>
-        <span className="edit-link-arrow">
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </span>
-      </button>
+        <button
+          type="button"
+          className={`edit-link edit-link--${edit.status}`}
+          onClick={() => handleEditClick(edit)}
+          title={tooltipLines.join("\n")}
+        >
+          <span className="edit-link-icon">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </span>
+          <span className="edit-link-text">{displayText}</span>
+        </button>
+        {!isResolved && (
+          <div className="edit-actions">
+            <button
+              type="button"
+              className="edit-accept-btn"
+              onClick={(e) => handleAccept(e, edit)}
+              title="Accept this change"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="edit-reject-btn"
+              onClick={(e) => handleReject(e, edit)}
+              title="Reject this change"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        )}
+        {edit.status === "accepted" && (
+          <span className="edit-status-badge edit-status-accepted">
+            Accepted
+          </span>
+        )}
+        {edit.status === "rejected" && (
+          <span className="edit-status-badge edit-status-rejected">
+            Rejected
+          </span>
+        )}
+      </div>
     );
   };
 

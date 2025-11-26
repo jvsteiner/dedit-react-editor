@@ -1284,6 +1284,28 @@ del.selected-change,
     gap: 0.375rem;
 }
 
+/* Edit row container */
+.edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+
+.edit-row:hover {
+    background: rgba(0, 102, 204, 0.05);
+}
+
+.edit-row--accepted {
+    opacity: 0.6;
+}
+
+.edit-row--rejected {
+    opacity: 0.6;
+}
+
 .edit-link {
     display: flex;
     align-items: center;
@@ -1297,6 +1319,8 @@ del.selected-change,
     text-align: left;
     font-size: 0.8125rem;
     color: #333;
+    flex: 1;
+    min-width: 0;
 }
 
 .edit-link:hover {
@@ -1310,12 +1334,10 @@ del.selected-change,
 
 .edit-link--accepted {
     border-left: 3px solid #28a745;
-    opacity: 0.7;
 }
 
 .edit-link--rejected {
     border-left: 3px solid #dc3545;
-    opacity: 0.7;
     text-decoration: line-through;
 }
 
@@ -1338,6 +1360,65 @@ del.selected-change,
 
 .edit-link:hover .edit-link-arrow {
     color: #0066cc;
+}
+
+/* Edit action buttons */
+.edit-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.edit-accept-btn,
+.edit-reject-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.edit-accept-btn {
+    background: #e8f5e9;
+    color: #28a745;
+}
+
+.edit-accept-btn:hover {
+    background: #28a745;
+    color: white;
+}
+
+.edit-reject-btn {
+    background: #ffebee;
+    color: #dc3545;
+}
+
+.edit-reject-btn:hover {
+    background: #dc3545;
+    color: white;
+}
+
+/* Edit status badges */
+.edit-status-badge {
+    font-size: 0.6875rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.edit-status-accepted {
+    background: #e8f5e9;
+    color: #28a745;
+}
+
+.edit-status-rejected {
+    background: #ffebee;
+    color: #dc3545;
 }
 
 /* Replacement Preview */

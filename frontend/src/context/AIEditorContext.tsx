@@ -9,19 +9,21 @@ import {
 import { Editor } from "@tiptap/react";
 import { diffWords } from "diff";
 
-// Types for AI edits - paragraph-level replacements using IDs
+// Types for AI edits - individual word-level changes
 export interface AIEdit {
   id: string;
-  // Paragraph ID (UUID from ParagraphWithId extension)
+  // Paragraph ID where this edit occurs
   paragraphId: string;
-  // Original paragraph text
-  originalText: string;
-  // Full replacement paragraph text
-  replacement: string;
+  // The deleted text (empty string if pure insertion)
+  deletedText: string;
+  // The inserted text (empty string if pure deletion)
+  insertedText: string;
   // Brief description of what changed
   reason?: string;
-  // Track change IDs after applied (may be multiple for complex diffs)
-  trackChangeIds?: string[];
+  // Track change ID for the deletion mark (if any)
+  deletionId?: string;
+  // Track change ID for the insertion mark (if any)
+  insertionId?: string;
   status: "pending" | "applied" | "accepted" | "rejected";
 }
 
@@ -93,6 +95,16 @@ export interface AIEditorState {
   sendPrompt: (prompt: string) => Promise<void>;
   scrollToEdit: (edit: AIEdit) => void;
   goToEditAndSelect: (edit: AIEdit) => void;
+
+  // Accept/Reject paired changes
+  acceptEdit: (edit: AIEdit) => void;
+  rejectEdit: (edit: AIEdit) => void;
+
+  // Get all pending edits from messages
+  getPendingEdits: () => AIEdit[];
+
+  // Get next edit after the given one
+  getNextEdit: (currentEdit: AIEdit) => AIEdit | null;
 }
 
 const AIEditorContext = createContext<AIEditorState | null>(null);
@@ -423,11 +435,12 @@ export function AIEditorProvider({
     const ed = editorRef.current;
     if (!ed) return;
 
-    // Try to find by track change ID first
-    if (edit.trackChangeIds && edit.trackChangeIds.length > 0) {
+    // Try to find by track change ID first (prefer deletion, fallback to insertion)
+    const trackChangeId = edit.deletionId || edit.insertionId;
+    if (trackChangeId) {
       const editorDom = ed.view.dom;
       const element = editorDom.querySelector(
-        `[data-insertion-id="${edit.trackChangeIds[0]}"], [data-deletion-id="${edit.trackChangeIds[0]}"]`,
+        `[data-insertion-id="${trackChangeId}"], [data-deletion-id="${trackChangeId}"]`,
       );
       if (element) {
         element.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -459,9 +472,9 @@ export function AIEditorProvider({
 
       console.log("[goToEditAndSelect] Called with edit:", edit);
 
-      // Try to find and select by track change ID
-      if (edit.trackChangeIds && edit.trackChangeIds.length > 0) {
-        const trackChangeId = edit.trackChangeIds[0];
+      // Try to find and select by track change ID (prefer deletion, fallback to insertion)
+      const trackChangeId = edit.deletionId || edit.insertionId;
+      if (trackChangeId) {
         const editorDom = ed.view.dom;
 
         // Find the element
@@ -503,14 +516,132 @@ export function AIEditorProvider({
     [scrollToEdit],
   );
 
-  // Apply a single paragraph edit as track changes
+  // Get all pending/applied edits from messages
+  const getPendingEdits = useCallback((): AIEdit[] => {
+    const allEdits: AIEdit[] = [];
+    for (const message of messages) {
+      if (message.metadata?.edits) {
+        for (const edit of message.metadata.edits) {
+          if (edit.status === "pending" || edit.status === "applied") {
+            allEdits.push(edit);
+          }
+        }
+      }
+    }
+    return allEdits;
+  }, [messages]);
+
+  // Get the next edit after the current one
+  const getNextEdit = useCallback(
+    (currentEdit: AIEdit): AIEdit | null => {
+      const allEdits = getPendingEdits();
+      const currentIndex = allEdits.findIndex((e) => e.id === currentEdit.id);
+      if (currentIndex >= 0 && currentIndex < allEdits.length - 1) {
+        return allEdits[currentIndex + 1];
+      }
+      return null;
+    },
+    [getPendingEdits],
+  );
+
+  // Update edit status in messages
+  const updateEditStatus = useCallback(
+    (editId: string, status: AIEdit["status"]) => {
+      setMessages((prevMessages) =>
+        prevMessages.map((message) => {
+          if (!message.metadata?.edits) return message;
+          const updatedEdits = message.metadata.edits.map((edit) =>
+            edit.id === editId ? { ...edit, status } : edit,
+          );
+          return {
+            ...message,
+            metadata: { ...message.metadata, edits: updatedEdits },
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  // Accept a paired edit (both deletion and insertion)
+  const acceptEdit = useCallback(
+    (edit: AIEdit) => {
+      const ed = editorRef.current;
+      if (!ed) return;
+
+      console.log("[acceptEdit] Accepting edit:", edit);
+
+      // Accept both deletion and insertion if they exist
+      if (edit.deletionId) {
+        ed.commands.acceptDeletion(edit.deletionId);
+      }
+      if (edit.insertionId) {
+        ed.commands.acceptInsertion(edit.insertionId);
+      }
+
+      // Update edit status
+      updateEditStatus(edit.id, "accepted");
+
+      // Auto-advance to next edit
+      const nextEdit = getNextEdit(edit);
+      if (nextEdit) {
+        // Small delay to let the DOM update after accepting
+        setTimeout(() => {
+          goToEditAndSelect(nextEdit);
+        }, 100);
+      }
+    },
+    [updateEditStatus, getNextEdit, goToEditAndSelect],
+  );
+
+  // Reject a paired edit (both deletion and insertion)
+  const rejectEdit = useCallback(
+    (edit: AIEdit) => {
+      const ed = editorRef.current;
+      if (!ed) return;
+
+      console.log("[rejectEdit] Rejecting edit:", edit);
+
+      // Reject both deletion and insertion if they exist
+      if (edit.deletionId) {
+        ed.commands.rejectDeletion(edit.deletionId);
+      }
+      if (edit.insertionId) {
+        ed.commands.rejectInsertion(edit.insertionId);
+      }
+
+      // Update edit status
+      updateEditStatus(edit.id, "rejected");
+
+      // Auto-advance to next edit
+      const nextEdit = getNextEdit(edit);
+      if (nextEdit) {
+        // Small delay to let the DOM update after rejecting
+        setTimeout(() => {
+          goToEditAndSelect(nextEdit);
+        }, 100);
+      }
+    },
+    [updateEditStatus, getNextEdit, goToEditAndSelect],
+  );
+
+  // Represents a paired word change (deletion + insertion)
+  interface WordChange {
+    deletedText: string;
+    insertedText: string;
+    deletionId?: string;
+    insertionId?: string;
+  }
+
+  // Apply a single paragraph edit and return individual word changes
   const applyParagraphEdit = useCallback(
     (
       ed: Editor,
       paragraphId: string,
       newText: string,
       authorName: string,
-    ): string[] => {
+      reason?: string,
+    ): AIEdit[] => {
       // Find current paragraph position
       const para = findParagraphById(ed, paragraphId);
       if (!para) {
@@ -519,12 +650,52 @@ export function AIEditorProvider({
       }
 
       console.log(`[applyParagraphEdit] Editing paragraph ${paragraphId}:`);
-      console.log(`  Old: "${para.text}"`);
-      console.log(`  New: "${newText}"`);
+      console.log(`  Old: "${para.text.substring(0, 100)}..."`);
+      console.log(`  New: "${newText.substring(0, 100)}..."`);
 
       // Compute diff between old and new text
       const diff = computeDiff(para.text, newText);
-      console.log(`  Diff:`, diff);
+
+      // Group consecutive delete+insert pairs as single word changes
+      const wordChanges: WordChange[] = [];
+      let i = 0;
+      while (i < diff.length) {
+        const current = diff[i];
+        if (current.type === "delete") {
+          // Check if next is an insert at same position (replacement)
+          const next = diff[i + 1];
+          if (
+            next &&
+            next.type === "insert" &&
+            next.oldStart === current.oldEnd
+          ) {
+            wordChanges.push({
+              deletedText: current.text,
+              insertedText: next.text,
+            });
+            i += 2;
+          } else {
+            // Pure deletion
+            wordChanges.push({
+              deletedText: current.text,
+              insertedText: "",
+            });
+            i++;
+          }
+        } else if (current.type === "insert") {
+          // Pure insertion
+          wordChanges.push({
+            deletedText: "",
+            insertedText: current.text,
+          });
+          i++;
+        } else {
+          // Keep - skip
+          i++;
+        }
+      }
+
+      console.log(`  Word changes:`, wordChanges.length);
 
       // Get existing track change IDs before applying
       const existingIds = new Set<string>();
@@ -547,14 +718,12 @@ export function AIEditorProvider({
         const docPos = para.from + change.oldStart;
 
         if (change.type === "delete") {
-          // Select and delete the text
           ed.chain()
             .focus()
             .setTextSelection({ from: docPos, to: para.from + change.oldEnd })
             .deleteSelection()
             .run();
         } else if (change.type === "insert") {
-          // Position cursor and insert
           ed.chain()
             .focus()
             .setTextSelection(docPos)
@@ -564,30 +733,72 @@ export function AIEditorProvider({
       }
 
       // Find new track change IDs that were created
-      const newIds: string[] = [];
-      editorDom
-        .querySelectorAll("ins[data-insertion-id], del[data-deletion-id]")
-        .forEach((el) => {
-          const id =
-            el.getAttribute("data-insertion-id") ||
-            el.getAttribute("data-deletion-id");
-          const author = el.getAttribute("data-author");
-          if (id && !existingIds.has(id) && author === authorName) {
-            newIds.push(id);
-          }
-        });
+      const newDeletionIds: string[] = [];
+      const newInsertionIds: string[] = [];
+      editorDom.querySelectorAll("del[data-deletion-id]").forEach((el) => {
+        const id = el.getAttribute("data-deletion-id");
+        const author = el.getAttribute("data-author");
+        if (id && !existingIds.has(id) && author === authorName) {
+          newDeletionIds.push(id);
+        }
+      });
+      editorDom.querySelectorAll("ins[data-insertion-id]").forEach((el) => {
+        const id = el.getAttribute("data-insertion-id");
+        const author = el.getAttribute("data-author");
+        if (id && !existingIds.has(id) && author === authorName) {
+          newInsertionIds.push(id);
+        }
+      });
 
-      console.log(`[applyParagraphEdit] Created track change IDs:`, newIds);
-      return newIds;
+      console.log(`  New deletion IDs:`, newDeletionIds);
+      console.log(`  New insertion IDs:`, newInsertionIds);
+
+      // Match track change IDs to word changes
+      // IDs appear in document order, word changes were applied in reverse
+      // So we reverse the ID arrays to match
+      newDeletionIds.reverse();
+      newInsertionIds.reverse();
+
+      let delIdx = 0;
+      let insIdx = 0;
+      const edits: AIEdit[] = wordChanges.map((wc) => {
+        const edit: AIEdit = {
+          id: generateEditId(),
+          paragraphId,
+          deletedText: wc.deletedText,
+          insertedText: wc.insertedText,
+          reason,
+          status: "applied",
+        };
+
+        if (wc.deletedText) {
+          edit.deletionId = newDeletionIds[delIdx++];
+        }
+        if (wc.insertedText) {
+          edit.insertionId = newInsertionIds[insIdx++];
+        }
+
+        return edit;
+      });
+
+      console.log(`  Created ${edits.length} AIEdit objects`);
+      return edits;
     },
     [],
   );
 
-  // Apply edits as track changes
+  // Apply paragraph edits from AI response and return word-level AIEdits
   const applyEditsAsTrackChanges = useCallback(
-    (edits: AIEdit[], authorName: string): AIEdit[] => {
+    (
+      paragraphEdits: Array<{
+        paragraphId: string;
+        newText: string;
+        reason?: string;
+      }>,
+      authorName: string,
+    ): AIEdit[] => {
       const ed = editorRef.current;
-      if (!ed || edits.length === 0) return edits;
+      if (!ed || paragraphEdits.length === 0) return [];
 
       // Enable track changes with AI author
       const wasEnabled = ed.storage.trackChangesMode?.enabled || false;
@@ -596,24 +807,18 @@ export function AIEditorProvider({
       ed.commands.enableTrackChanges();
       ed.commands.setTrackChangesAuthor(authorName);
 
-      // Apply each edit and collect track change IDs
-      const updatedEdits: AIEdit[] = edits.map((edit) => {
-        const trackChangeIds = applyParagraphEdit(
+      // Apply each paragraph edit and collect word-level edits
+      const allEdits: AIEdit[] = [];
+      for (const paraEdit of paragraphEdits) {
+        const wordEdits = applyParagraphEdit(
           ed,
-          edit.paragraphId,
-          edit.replacement,
+          paraEdit.paragraphId,
+          paraEdit.newText,
           authorName,
+          paraEdit.reason,
         );
-
-        return {
-          ...edit,
-          trackChangeIds,
-          status:
-            trackChangeIds.length > 0
-              ? ("applied" as const)
-              : ("pending" as const),
-        };
-      });
+        allEdits.push(...wordEdits);
+      }
 
       // Restore previous track changes state
       if (!wasEnabled) {
@@ -621,7 +826,7 @@ export function AIEditorProvider({
       }
       ed.commands.setTrackChangesAuthor(previousAuthor);
 
-      return updatedEdits;
+      return allEdits;
     },
     [applyParagraphEdit],
   );
@@ -777,27 +982,18 @@ export function AIEditorProvider({
           aiResponse = { message: assistantContent };
         }
 
-        // Convert edits to AIEdit format
+        // Apply edits as track changes and get word-level AIEdit objects
         let processedEdits: AIEdit[] = [];
         if (aiResponse.edits && aiResponse.edits.length > 0) {
-          // Look up original text for each paragraph
-          processedEdits = aiResponse.edits.map((edit) => {
-            const paraInfo = paragraphMapRef.current.get(edit.paragraphId);
-            return {
-              id: generateEditId(),
-              paragraphId: edit.paragraphId,
-              originalText: paraInfo?.text || "",
-              replacement: edit.newText,
-              reason: edit.reason,
-              status: "pending" as const,
-            };
-          });
-
-          // Apply edits as track changes
           try {
+            // Pass paragraph edits directly to applyEditsAsTrackChanges
+            // It will compute diffs and return word-level AIEdit objects
             processedEdits = applyEditsAsTrackChanges(
-              processedEdits,
+              aiResponse.edits,
               config.aiAuthorName || "AI",
+            );
+            console.log(
+              `[sendPrompt] Applied ${aiResponse.edits.length} paragraph edits, got ${processedEdits.length} word-level edits`,
             );
           } catch (applyErr) {
             console.error("[sendPrompt] Error applying edits:", applyErr);
@@ -849,6 +1045,10 @@ export function AIEditorProvider({
     sendPrompt,
     scrollToEdit,
     goToEditAndSelect,
+    acceptEdit,
+    rejectEdit,
+    getPendingEdits,
+    getNextEdit,
   };
 
   return (
