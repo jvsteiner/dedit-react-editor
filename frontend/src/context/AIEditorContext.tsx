@@ -7,6 +7,7 @@ import {
   ReactNode,
 } from "react";
 import { Editor } from "@tiptap/react";
+import { diffWords } from "diff";
 
 // Types for AI edits - paragraph-level replacements using IDs
 export interface AIEdit {
@@ -182,7 +183,7 @@ function findParagraphById(
 }
 
 /**
- * Compute the character-level diff between two strings.
+ * Compute word-level diff between two strings using the diff library.
  * Returns array of changes with positions relative to the old string.
  */
 function computeDiff(
@@ -194,28 +195,7 @@ function computeDiff(
   oldStart: number;
   oldEnd: number;
 }> {
-  // Find common prefix
-  let prefixLen = 0;
-  while (
-    prefixLen < oldStr.length &&
-    prefixLen < newStr.length &&
-    oldStr[prefixLen] === newStr[prefixLen]
-  ) {
-    prefixLen++;
-  }
-
-  // Find common suffix (but not overlapping with prefix)
-  let oldSuffixStart = oldStr.length;
-  let newSuffixStart = newStr.length;
-  while (
-    oldSuffixStart > prefixLen &&
-    newSuffixStart > prefixLen &&
-    oldStr[oldSuffixStart - 1] === newStr[newSuffixStart - 1]
-  ) {
-    oldSuffixStart--;
-    newSuffixStart--;
-  }
-
+  const wordDiff = diffWords(oldStr, newStr);
   const changes: Array<{
     type: "keep" | "delete" | "insert";
     text: string;
@@ -223,44 +203,36 @@ function computeDiff(
     oldEnd: number;
   }> = [];
 
-  // Common prefix (kept)
-  if (prefixLen > 0) {
-    changes.push({
-      type: "keep",
-      text: oldStr.slice(0, prefixLen),
-      oldStart: 0,
-      oldEnd: prefixLen,
-    });
-  }
+  let oldPos = 0;
 
-  // Deleted middle part
-  if (oldSuffixStart > prefixLen) {
-    changes.push({
-      type: "delete",
-      text: oldStr.slice(prefixLen, oldSuffixStart),
-      oldStart: prefixLen,
-      oldEnd: oldSuffixStart,
-    });
-  }
-
-  // Inserted middle part
-  if (newSuffixStart > prefixLen) {
-    changes.push({
-      type: "insert",
-      text: newStr.slice(prefixLen, newSuffixStart),
-      oldStart: oldSuffixStart, // Insert at where deletion ended
-      oldEnd: oldSuffixStart,
-    });
-  }
-
-  // Common suffix (kept)
-  if (oldSuffixStart < oldStr.length) {
-    changes.push({
-      type: "keep",
-      text: oldStr.slice(oldSuffixStart),
-      oldStart: oldSuffixStart,
-      oldEnd: oldStr.length,
-    });
+  for (const part of wordDiff) {
+    if (part.added) {
+      // Inserted text - position is where we are in old string
+      changes.push({
+        type: "insert",
+        text: part.value,
+        oldStart: oldPos,
+        oldEnd: oldPos,
+      });
+    } else if (part.removed) {
+      // Deleted text - advances old position
+      changes.push({
+        type: "delete",
+        text: part.value,
+        oldStart: oldPos,
+        oldEnd: oldPos + part.value.length,
+      });
+      oldPos += part.value.length;
+    } else {
+      // Unchanged text - advances old position
+      changes.push({
+        type: "keep",
+        text: part.value,
+        oldStart: oldPos,
+        oldEnd: oldPos + part.value.length,
+      });
+      oldPos += part.value.length;
+    }
   }
 
   return changes;
