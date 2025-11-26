@@ -222,6 +222,22 @@ body {
     }
 }
 
+/* Simplified editor layout (no sidebar) */
+.editor-container-simple {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 900px) {
+    .editor-container-simple {
+        grid-template-columns: 1fr;
+    }
+    .editor-container-simple .json-panel {
+        display: none;
+    }
+}
+
 /* Sidebar Panel */
 .sidebar-panel {
     display: flex;
@@ -611,6 +627,33 @@ body {
     background: #e0e0e0;
     color: #000;
     border-color: #ccc;
+}
+
+.toolbar-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.toolbar-btn:disabled:hover {
+    background: transparent;
+    color: #555;
+}
+
+.toolbar-btn-accept:not(:disabled):hover {
+    background: #d4edda;
+    color: #155724;
+}
+
+.toolbar-btn-reject:not(:disabled):hover {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.toolbar-separator {
+    width: 1px;
+    height: 24px;
+    background: #ddd;
+    margin: 4px 4px;
 }
 
 /* Track changes marks in editor */

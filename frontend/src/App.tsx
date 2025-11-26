@@ -2,8 +2,6 @@ import { useState, useCallback } from "react";
 import { Editor } from "@tiptap/react";
 import DocumentEditor from "./components/DocumentEditor";
 import FileUpload from "./components/FileUpload";
-import TrackChangesToolbar from "./components/TrackChangesToolbar";
-import CommentsPanel from "./components/CommentsPanel";
 
 interface CommentData {
   id: string;
@@ -33,25 +31,17 @@ function App() {
   const [editorJson, setEditorJson] = useState<Record<string, unknown> | null>(
     null,
   );
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const [, setEditor] = useState<Editor | null>(null);
   const [comments, setComments] = useState<CommentData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trackChangesEnabled, setTrackChangesEnabled] = useState(false);
-  const [trackChangesAuthor, setTrackChangesAuthor] = useState(() => {
-    return localStorage.getItem("trackChangesAuthor") || "Current User";
-  });
   const [templateOption, setTemplateOption] = useState<TemplateOption>("none");
   const [customTemplate, setCustomTemplate] = useState<TemplateData | null>(
     null,
   );
   const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
-
-  const handleAuthorChange = useCallback((author: string) => {
-    setTrackChangesAuthor(author);
-    localStorage.setItem("trackChangesAuthor", author);
-  }, []);
 
   const handleEditorReady = useCallback((editorInstance: Editor) => {
     setEditor(editorInstance);
@@ -270,18 +260,7 @@ function App() {
 
       {error && <div className="error">{error}</div>}
 
-      <div className="editor-container">
-        <div className="sidebar-panel">
-          <TrackChangesToolbar
-            editor={editor}
-            trackChangesEnabled={trackChangesEnabled}
-            onTrackChangesToggle={setTrackChangesEnabled}
-            author={trackChangesAuthor}
-            onAuthorChange={handleAuthorChange}
-          />
-          <CommentsPanel editor={editor} comments={comments} />
-        </div>
-
+      <div className="editor-container-simple">
         <div className="editor-panel">
           <div className="panel-header">Editor</div>
           <div className="editor-content">
@@ -289,7 +268,19 @@ function App() {
               content={document?.tiptap || null}
               onUpdate={handleEditorUpdate}
               onEditorReady={handleEditorReady}
-              toolbar={["bold", "italic"]}
+              toolbar={[
+                "bold",
+                "italic",
+                "trackChangesToggle",
+                "prevChange",
+                "nextChange",
+                "acceptChange",
+                "rejectChange",
+                "acceptAll",
+                "rejectAll",
+              ]}
+              trackChangesEnabled={trackChangesEnabled}
+              onTrackChangesToggle={setTrackChangesEnabled}
             />
           </div>
         </div>
