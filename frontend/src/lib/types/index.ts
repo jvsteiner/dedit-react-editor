@@ -115,7 +115,16 @@ export interface ExtensionConfig {
 /**
  * Available toolbar items
  */
-export type ToolbarItem = "bold" | "italic";
+export type ToolbarItem =
+  | "bold"
+  | "italic"
+  | "trackChangesToggle"
+  | "acceptChange"
+  | "rejectChange"
+  | "prevChange"
+  | "nextChange"
+  | "acceptAll"
+  | "rejectAll";
 
 /**
  * Template configuration for export
