@@ -58,8 +58,33 @@ export interface SelectionContext {
   hasSelection: boolean;
 }
 
+// Request/Response types for custom AI handler
+export interface AIEditRequest {
+  prompt: string;
+  paragraphs: Array<{ id: string; text: string }>;
+  selection?: {
+    text: string;
+    hasSelection: boolean;
+  };
+}
+
+export interface AIEditResponse {
+  message: string;
+  edits: Array<{
+    paragraphId: string;
+    newText: string;
+    reason?: string;
+  }>;
+}
+
 export interface AIEditorConfig {
   aiAuthorName?: string;
+
+  // Custom AI request handler - if provided, all AI calls go through this
+  // If not provided, falls back to direct OpenAI API (requires apiKey)
+  onAIRequest?: (request: AIEditRequest) => Promise<AIEditResponse>;
+
+  // Only used if onAIRequest is not provided (direct OpenAI mode)
   aiModel?: string;
   aiTemperature?: number;
 }
@@ -862,10 +887,12 @@ export function AIEditorProvider({
     [applyParagraphEdit],
   );
 
-  // Send prompt to OpenAI
+  // Send prompt to AI (either via custom handler or direct OpenAI)
   const sendPrompt = useCallback(
     async (prompt: string) => {
-      if (!apiKey) {
+      // Check if we have a way to make AI requests
+      const hasCustomHandler = !!config.onAIRequest;
+      if (!hasCustomHandler && !apiKey) {
         setError("Please enter your OpenAI API key");
         return;
       }
@@ -908,109 +935,152 @@ export function AIEditorProvider({
         },
       });
 
-      // Build system prompt
-      const systemPrompt = buildSystemPrompt(
-        indexedDocument,
-        hasSelection,
-        selectedText,
-      );
-
       try {
-        // Define JSON schema for structured output
-        const responseSchema = {
-          type: "json_schema",
-          json_schema: {
-            name: "ai_edit_response",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                message: {
-                  type: "string",
-                  description: "Response message explaining what was done",
-                },
-                edits: {
-                  type: "array",
-                  description:
-                    "Array of paragraph edits (empty if no changes needed)",
-                  items: {
-                    type: "object",
-                    properties: {
-                      paragraphId: {
-                        type: "string",
-                        description: "The UUID of the paragraph to edit",
-                      },
-                      newText: {
-                        type: "string",
-                        description: "The complete new text for the paragraph",
-                      },
-                      reason: {
-                        type: "string",
-                        description: "Brief explanation of what was changed",
-                      },
-                    },
-                    required: ["paragraphId", "newText", "reason"],
-                    additionalProperties: false,
-                  },
-                },
-              },
-              required: ["message", "edits"],
-              additionalProperties: false,
-            },
-          },
-        };
-
-        const response = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: config.aiModel || "gpt-5-mini",
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: prompt },
-              ],
-              temperature: config.aiTemperature ?? 1.0,
-              max_completion_tokens: 16384,
-              response_format: responseSchema,
-            }),
-          },
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.error?.message ||
-              `API request failed: ${response.status}`,
-          );
-        }
-
-        const data = await response.json();
-        const assistantContent = data.choices?.[0]?.message?.content || "{}";
-        console.log(
-          "[sendPrompt] Raw response:",
-          assistantContent.substring(0, 500) + "...",
-        );
-
-        // Parse the JSON response
         let aiResponse: AIResponse;
-        try {
-          aiResponse = JSON.parse(assistantContent);
+
+        if (config.onAIRequest) {
+          // Use custom handler (backend proxy mode)
+          console.log("[sendPrompt] Using custom onAIRequest handler");
+
+          // Build request for custom handler
+          const paragraphArray = Array.from(paragraphs.values()).map((p) => ({
+            id: p.id,
+            text: p.text,
+          }));
+
+          const request: AIEditRequest = {
+            prompt,
+            paragraphs: paragraphArray,
+            selection: hasSelection
+              ? { text: selectedText, hasSelection: true }
+              : undefined,
+          };
+
+          const response = await config.onAIRequest(request);
+          aiResponse = {
+            message: response.message,
+            edits: response.edits.map((e) => ({
+              paragraphId: e.paragraphId,
+              newText: e.newText,
+              reason: e.reason,
+            })),
+          };
+
           console.log(
-            "[sendPrompt] Parsed - message:",
+            "[sendPrompt] Custom handler response - message:",
             aiResponse.message?.substring(0, 100),
           );
           console.log(
-            "[sendPrompt] Parsed - edits:",
+            "[sendPrompt] Custom handler response - edits:",
             aiResponse.edits?.length || 0,
           );
-        } catch (parseErr) {
-          console.error("[sendPrompt] JSON parse failed:", parseErr);
-          aiResponse = { message: assistantContent };
+        } else {
+          // Direct OpenAI API mode
+          console.log("[sendPrompt] Using direct OpenAI API");
+
+          // Build system prompt
+          const systemPrompt = buildSystemPrompt(
+            indexedDocument,
+            hasSelection,
+            selectedText,
+          );
+
+          // Define JSON schema for structured output
+          const responseSchema = {
+            type: "json_schema",
+            json_schema: {
+              name: "ai_edit_response",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  message: {
+                    type: "string",
+                    description: "Response message explaining what was done",
+                  },
+                  edits: {
+                    type: "array",
+                    description:
+                      "Array of paragraph edits (empty if no changes needed)",
+                    items: {
+                      type: "object",
+                      properties: {
+                        paragraphId: {
+                          type: "string",
+                          description: "The UUID of the paragraph to edit",
+                        },
+                        newText: {
+                          type: "string",
+                          description:
+                            "The complete new text for the paragraph",
+                        },
+                        reason: {
+                          type: "string",
+                          description: "Brief explanation of what was changed",
+                        },
+                      },
+                      required: ["paragraphId", "newText", "reason"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["message", "edits"],
+                additionalProperties: false,
+              },
+            },
+          };
+
+          const response = await fetch(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                model: config.aiModel || "gpt-4.1-mini",
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: prompt },
+                ],
+                temperature: config.aiTemperature ?? 1.0,
+                max_completion_tokens: 16384,
+                response_format: responseSchema,
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(
+              errorData.error?.message ||
+                `API request failed: ${response.status}`,
+            );
+          }
+
+          const data = await response.json();
+          const assistantContent = data.choices?.[0]?.message?.content || "{}";
+          console.log(
+            "[sendPrompt] Raw response:",
+            assistantContent.substring(0, 500) + "...",
+          );
+
+          // Parse the JSON response
+          try {
+            aiResponse = JSON.parse(assistantContent);
+            console.log(
+              "[sendPrompt] Parsed - message:",
+              aiResponse.message?.substring(0, 100),
+            );
+            console.log(
+              "[sendPrompt] Parsed - edits:",
+              aiResponse.edits?.length || 0,
+            );
+          } catch (parseErr) {
+            console.error("[sendPrompt] JSON parse failed:", parseErr);
+            aiResponse = { message: assistantContent, edits: [] };
+          }
         }
 
         // Apply edits as track changes and get word-level AIEdit objects
