@@ -110,6 +110,18 @@ class NumberingTracker:
 
         # Parse the numbering definitions
         numbering_xml = numbering_part._element
+
+        # First pass: build a map of style names to their defining abstractNum IDs
+        # Some abstractNums use numStyleLink to reference styles defined elsewhere
+        style_to_abstract_id = {}
+        for abstract_num in numbering_xml.findall(qn("w:abstractNum")):
+            abstract_id = abstract_num.get(qn("w:abstractNumId"))
+            style_link = abstract_num.find(qn("w:styleLink"))
+            if style_link is not None:
+                style_name = style_link.get(qn("w:val"))
+                style_to_abstract_id[style_name] = abstract_id
+
+        # Second pass: extract level definitions from each abstractNum
         for abstract_num in numbering_xml.findall(qn("w:abstractNum")):
             abstract_id = abstract_num.get(qn("w:abstractNumId"))
             levels = {}
@@ -131,6 +143,19 @@ class NumberingTracker:
 
                 levels[ilvl] = {"format": num_fmt, "text": lvl_text}
             formats[abstract_id] = levels
+
+        # Third pass: resolve numStyleLink references
+        # If an abstractNum uses numStyleLink, copy levels from the defining abstractNum
+        for abstract_num in numbering_xml.findall(qn("w:abstractNum")):
+            abstract_id = abstract_num.get(qn("w:abstractNumId"))
+            num_style_link = abstract_num.find(qn("w:numStyleLink"))
+            if num_style_link is not None:
+                style_name = num_style_link.get(qn("w:val"))
+                # Find the abstractNum that defines this style
+                if style_name in style_to_abstract_id:
+                    defining_abstract_id = style_to_abstract_id[style_name]
+                    if defining_abstract_id in formats:
+                        formats[abstract_id] = formats[defining_abstract_id]
 
         # Map numId to abstractNumId
         self._num_to_abstract = {}
