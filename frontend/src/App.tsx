@@ -308,6 +308,9 @@ function AppContent() {
                 onUpdate={handleEditorUpdate}
                 onEditorReady={handleEditorReady}
                 toolbar={[
+                  "undo",
+                  "redo",
+                  "separator",
                   "bold",
                   "italic",
                   "separator",

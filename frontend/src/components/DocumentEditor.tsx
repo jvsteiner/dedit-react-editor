@@ -10,6 +10,7 @@ import Italic from "@tiptap/extension-italic";
 import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
+import History from "@tiptap/extension-history";
 
 import Section from "../extensions/Section";
 import TableWithId from "../extensions/TableWithId";
@@ -22,6 +23,8 @@ type ToolbarItem =
   | "bold"
   | "italic"
   | "separator"
+  | "undo"
+  | "redo"
   | "trackChangesToggle"
   | "acceptChange"
   | "rejectChange"
@@ -86,6 +89,9 @@ export function DocumentEditor({
         TrackChangesMode.configure({
           enabled: false,
           author: "Current User",
+        }),
+        History.configure({
+          depth: 100,
         }),
       ],
       content: content || {
@@ -574,6 +580,56 @@ export function DocumentEditor({
               <line x1="19" y1="4" x2="10" y2="4"></line>
               <line x1="14" y1="20" x2="5" y2="20"></line>
               <line x1="15" y1="4" x2="9" y2="20"></line>
+            </svg>
+          </button>
+        );
+      case "undo":
+        return (
+          <button
+            key="undo"
+            type="button"
+            onClick={() => editor.chain().focus().undo().run()}
+            className="toolbar-btn"
+            title="Undo (Ctrl+Z)"
+            disabled={!editor.can().undo()}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 7v6h6"></path>
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+            </svg>
+          </button>
+        );
+      case "redo":
+        return (
+          <button
+            key="redo"
+            type="button"
+            onClick={() => editor.chain().focus().redo().run()}
+            className="toolbar-btn"
+            title="Redo (Ctrl+Y)"
+            disabled={!editor.can().redo()}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 7v6h-6"></path>
+              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
             </svg>
           </button>
         );
