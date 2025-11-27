@@ -314,6 +314,8 @@ function AppContent() {
                   "bold",
                   "italic",
                   "separator",
+                  "findReplace",
+                  "separator",
                   "addRowBefore",
                   "addRowAfter",
                   "deleteRow",

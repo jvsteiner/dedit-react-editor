@@ -21,6 +21,8 @@ import { Insertion } from "../extensions/Insertion";
 import { Deletion } from "../extensions/Deletion";
 import { Comment } from "../extensions/Comment";
 import { TrackChangesMode } from "../extensions/TrackChangesMode";
+import { SearchAndReplace } from "../extensions/SearchAndReplace";
+import { FindReplaceBar } from "./FindReplaceBar";
 
 // Plugin key for persistent selection
 const persistentSelectionKey = new PluginKey("persistentSelection");
@@ -91,7 +93,8 @@ type ToolbarItem =
   | "prevChange"
   | "nextChange"
   | "acceptAll"
-  | "rejectAll";
+  | "rejectAll"
+  | "findReplace";
 
 interface TrackedChange {
   id: string;
@@ -125,6 +128,9 @@ export function DocumentEditor({
   // Get AI editor context if available (for syncing edit status)
   const aiEditorContext = useAIEditorOptional();
 
+  // Find/Replace bar visibility
+  const [showFindReplace, setShowFindReplace] = useState(false);
+
   const editor = useEditor(
     {
       extensions: [
@@ -154,6 +160,9 @@ export function DocumentEditor({
           depth: 100,
         }),
         PersistentSelection,
+        SearchAndReplace.configure({
+          searchResultClass: "search-result",
+        }),
       ],
       content: content || {
         type: "doc",
@@ -992,6 +1001,30 @@ export function DocumentEditor({
             </svg>
           </button>
         );
+      case "findReplace":
+        return (
+          <button
+            key="findReplace"
+            type="button"
+            onClick={() => setShowFindReplace((prev) => !prev)}
+            className={`toolbar-btn ${showFindReplace ? "is-active" : ""}`}
+            title="Find & Replace (Ctrl+F)"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+        );
       default:
         return null;
     }
@@ -1016,6 +1049,12 @@ export function DocumentEditor({
         <div className="editor-toolbar">
           {toolbar.map((item, index) => renderToolbarItem(item, index))}
         </div>
+      )}
+      {showFindReplace && (
+        <FindReplaceBar
+          editor={editor}
+          onClose={() => setShowFindReplace(false)}
+        />
       )}
       <div
         className="editor-scroll-container"
