@@ -1,6 +1,6 @@
 # dedit-react-editor Usage Guide
 
-A comprehensive guide for integrating the dedit-react-editor component library into your React application. This library provides a flexible, unstyled document editor with track changes and comments support, built on TipTap/ProseMirror.
+A comprehensive guide for integrating the dedit-react-editor component library into your React application. This library provides a flexible, unstyled document editor with track changes, comments, and AI-assisted editing support, built on TipTap/ProseMirror.
 
 ## Table of Contents
 
@@ -20,6 +20,8 @@ A comprehensive guide for integrating the dedit-react-editor component library i
 14. [TypeScript Types](#typescript-types)
 15. [Complete Examples](#complete-examples)
 16. [AI-Assisted Editing](#ai-assisted-editing)
+17. [Troubleshooting](#troubleshooting)
+18. [License](#license)
 
 ---
 
@@ -485,13 +487,18 @@ type ToolbarItem =
   | "bold"              // Toggle bold
   | "italic"            // Toggle italic
   | "separator"         // Visual separator
+  | "undo"              // Undo last action (Ctrl+Z)
+  | "redo"              // Redo last action (Ctrl+Y)
   | "trackChangesToggle"// Toggle track changes on/off
   | "prevChange"        // Navigate to previous change
   | "nextChange"        // Navigate to next change
   | "acceptChange"      // Accept current change
   | "rejectChange"      // Reject current change
   | "acceptAll"         // Accept all changes
-  | "rejectAll";        // Reject all changes
+  | "rejectAll"         // Reject all changes
+  | "addRowBefore"      // Add table row above cursor
+  | "addRowAfter"       // Add table row below cursor
+  | "deleteRow";        // Delete current table row
 ```
 
 ### Example Configuration
@@ -499,6 +506,9 @@ type ToolbarItem =
 ```tsx
 <DocumentEditor
   toolbar={[
+    "undo",
+    "redo",
+    "separator",
     "bold",
     "italic",
     "separator",
@@ -511,6 +521,10 @@ type ToolbarItem =
     "separator",
     "acceptAll",
     "rejectAll",
+    "separator",
+    "addRowBefore",
+    "addRowAfter",
+    "deleteRow",
   ]}
 />
 ```
@@ -1110,6 +1124,16 @@ import type {
   UseTrackChangesReturn,
   UseCommentsOptions,
   UseCommentsReturn,
+
+  // AI types
+  AIEdit,
+  AIEditRequest,
+  AIEditResponse,
+  AIEditorConfig,
+  AIEditorState,
+  AIResponse,
+  ChatMessage,
+  SelectionContext,
 } from 'dedit-react-editor';
 ```
 
@@ -1341,18 +1365,20 @@ function CustomEditor({ initialContent, comments: commentData }) {
 
 ## AI-Assisted Editing
 
-The library includes optional AI components for integrating OpenAI-powered editing capabilities. These components use a **provider pattern** allowing them to be placed anywhere in your layout while still communicating.
+The library includes AI components for integrating AI-powered editing capabilities. These components use a **provider pattern** allowing them to be placed anywhere in your layout while still communicating. The AI system supports both **direct OpenAI API calls** (for development/demos) and **backend proxy mode** (for production SaaS applications).
 
 ### AI Components Overview
 
 | Component | Purpose |
 |-----------|---------|
 | `AIEditorProvider` | Context provider - wrap your app with this |
-| `APIKeyInput` | Input for user's OpenAI API key |
-| `AIChatPanel` | Displays AI conversation history |
-| `PromptInput` | Text input for AI prompts with mode selector |
+| `APIKeyInput` | Input for user's OpenAI API key (direct mode only) |
+| `AIChatPanel` | Displays AI conversation with inline edit controls |
+| `PromptInput` | Text input for AI prompts |
 
-### Quick Start with AI
+### Quick Start with AI (Direct OpenAI Mode)
+
+For development or demos where users provide their own API key:
 
 ```tsx
 import {
@@ -1366,7 +1392,7 @@ import { DocumentEditor } from 'dedit-react-editor';
 
 function AIEditorApp() {
   return (
-    <AIEditorProvider>
+    <AIEditorProvider config={{ aiAuthorName: "AI Assistant" }}>
       <AppContent />
     </AIEditorProvider>
   );
@@ -1377,66 +1403,150 @@ function AppContent() {
 
   return (
     <div className="ai-editor-layout">
-      {/* Settings area */}
+      {/* API Key input (direct mode) */}
       <div className="settings">
         <APIKeyInput showLabel />
       </div>
 
-      {/* Editor area */}
+      {/* Editor */}
       <div className="editor">
         <DocumentEditor
           content={document}
           onEditorReady={(editor) => setEditor(editor)}
+          trackChanges={{ enabled: true, author: "AI Assistant" }}
         />
       </div>
 
-      {/* Chat area */}
+      {/* Chat panel with edit controls */}
       <div className="chat">
-        <AIChatPanel showHeader headerTitle="AI Assistant" />
+        <AIChatPanel />
       </div>
 
-      {/* Prompt area */}
+      {/* Prompt input */}
       <div className="prompt">
-        <PromptInput showModeSelector showSelectionIndicator />
+        <PromptInput />
       </div>
     </div>
   );
 }
 ```
 
-### Flexible Layout
+### Backend Proxy Mode (Recommended for Production)
 
-The key advantage of the AI components is that they can be placed **anywhere** in your component tree and still communicate:
+For SaaS applications where you need authentication, auditing, or server-side AI calls:
 
 ```tsx
-<AIEditorProvider>
-  <Header>
-    <APIKeyInput compact />  {/* In header */}
-  </Header>
-  
-  <Sidebar>
-    <AIChatPanel />          {/* In sidebar */}
-  </Sidebar>
-  
-  <Main>
-    <DocumentEditor ... />   {/* In main area */}
-  </Main>
-  
-  <Footer>
-    <PromptInput />          {/* In footer */}
-  </Footer>
-</AIEditorProvider>
+import {
+  AIEditorProvider,
+  AIEditRequest,
+  AIEditResponse,
+} from 'dedit-react-editor/ai';
+
+function AIEditorApp() {
+  // Custom handler routes all AI calls through your backend
+  const handleAIRequest = async (request: AIEditRequest): Promise<AIEditResponse> => {
+    const response = await fetch('/api/ai/edit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getAuthToken()}`,  // Your auth
+      },
+      body: JSON.stringify({
+        ...request,
+        documentId: currentDocumentId,  // For auditing
+        userId: currentUser.id,          // For auditing
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('AI request failed');
+    }
+
+    return response.json();
+  };
+
+  return (
+    <AIEditorProvider
+      config={{
+        aiAuthorName: "AI Assistant",
+        onAIRequest: handleAIRequest,  // Backend proxy mode
+      }}
+    >
+      <AppContent />
+    </AIEditorProvider>
+  );
+}
 ```
 
-### AI Modes
+When `onAIRequest` is provided, the API key input is not required.
 
-The `PromptInput` component supports three modes:
+### AI Request/Response Types
 
-| Mode | Description |
-|------|-------------|
-| `targeted` | Edit selected text only |
-| `global` | Apply changes to entire document |
-| `analysis` | Ask questions without editing |
+```typescript
+// Request sent to your backend (or used internally for direct mode)
+interface AIEditRequest {
+  prompt: string;
+  paragraphs: Array<{ id: string; text: string }>;
+  selection?: {
+    text: string;
+    hasSelection: boolean;
+  };
+}
+
+// Response expected from your backend
+interface AIEditResponse {
+  message: string;  // AI's explanation of changes
+  edits: Array<{
+    paragraphId: string;  // UUID of paragraph to edit
+    newText: string;      // Complete new text for paragraph
+    reason?: string;      // Why this change was made
+  }>;
+}
+```
+
+### AIEditorConfig Options
+
+```typescript
+interface AIEditorConfig {
+  // Author name shown on AI-generated track changes
+  aiAuthorName?: string;
+
+  // Custom AI request handler - if provided, all AI calls go through this
+  // If not provided, falls back to direct OpenAI API (requires apiKey)
+  onAIRequest?: (request: AIEditRequest) => Promise<AIEditResponse>;
+
+  // Only used if onAIRequest is not provided (direct OpenAI mode)
+  aiModel?: string;        // Default: "gpt-4.1-mini"
+  aiTemperature?: number;  // Default: 1.0
+}
+```
+
+### How AI Edits Work
+
+1. **User sends prompt** via the `PromptInput` component
+2. **AI analyzes document** - each paragraph has a unique UUID
+3. **AI returns edits** - specifying which paragraphs to change and their new text
+4. **Word-level diffing** - the system computes word-level differences automatically
+5. **Track changes applied** - deletions and insertions are marked as paired track changes
+6. **User reviews in chat** - each edit shows `"old text" → "new text"` with accept/reject buttons
+7. **Accept/Reject** - accepting/rejecting an edit handles both the deletion and insertion as a unit
+
+### AIEdit Type
+
+Individual word-level changes tracked by the system:
+
+```typescript
+interface AIEdit {
+  id: string;
+  paragraphId: string;
+  deletedText: string;    // Text being removed (empty for pure insertions)
+  insertedText: string;   // Text being added (empty for pure deletions)
+  reason?: string;        // AI's explanation
+  deletionId?: string;    // Track change ID for deletion mark
+  insertionId?: string;   // Track change ID for insertion mark
+  status: "pending" | "applied" | "accepted" | "rejected";
+}
+```
 
 ### useAIEditor Hook
 
@@ -1444,31 +1554,67 @@ Access AI state from any component:
 
 ```typescript
 const {
-  // API Key
-  apiKey,           // Current key (or null)
-  setApiKey,        // Set/clear key
+  // Config
+  config,               // Current AIEditorConfig
+  setConfig,            // Update config
+
+  // API Key (direct mode only)
+  apiKey,               // Current key (or null)
+  setApiKey,            // Set/clear key
 
   // Editor
-  editor,           // TipTap editor instance
-  setEditor,        // Register editor
+  editor,               // TipTap editor instance
+  setEditor,            // Register editor
 
   // Selection
-  selectionContext, // {text, from, to, hasSelection}
+  selectionContext,     // {text, from, to, hasSelection}
 
   // Chat
-  messages,         // Message history
-  addMessage,       // Add message
-  clearMessages,    // Clear history
+  messages,             // Message history with edits
+  addMessage,           // Add message
+  clearMessages,        // Clear history
 
   // State
-  isLoading,        // Request in progress
-  error,            // Error message
+  isLoading,            // Request in progress
+  error,                // Error message
+  setError,             // Set error
 
   // Actions
-  sendPrompt,       // Send to AI: (prompt, mode) => Promise
-  applyEdit,        // Apply replacement text
+  sendPrompt,           // Send prompt to AI
+  scrollToEdit,         // Scroll editor to show an edit
+  goToEditAndSelect,    // Navigate to and select an edit
+
+  // Edit Management
+  acceptEdit,           // Accept an edit (handles paired deletion/insertion)
+  rejectEdit,           // Reject an edit (handles paired deletion/insertion)
+  getPendingEdits,      // Get all pending edits
+  getNextEdit,          // Get next edit after current one
+  updateEditStatusByTrackChangeId,  // Sync status from external sources
 } = useAIEditor();
 ```
+
+### AIChatPanel Features
+
+The chat panel displays the conversation and provides inline edit controls:
+
+- **Edit links** - Click to scroll editor to that change
+- **Edit display** - Shows `"deleted" → "inserted"` format
+- **Accept/Reject buttons** - Per-edit controls
+- **Auto-advance** - After accept/reject, automatically advances to next edit
+- **Status sync** - Edits accepted/rejected via editor context menu update chat display
+
+### Editor Context Menu
+
+Right-click in the editor to access a context menu for bulk operations:
+
+- **Accept Changes in Selection** - Accept all track changes within selected text
+- **Reject Changes in Selection** - Reject all track changes within selected text
+
+The context menu automatically syncs with the AI chat panel.
+
+### Persistent Selection
+
+When the editor loses focus (e.g., when clicking in the chat panel), the current selection remains visually highlighted. This helps users see what text they've selected while interacting with AI features.
 
 ### Component Props
 
@@ -1498,33 +1644,63 @@ const {
 ```tsx
 <PromptInput
   className=""                  // Additional CSS class
-  showModeSelector={true}       // Show Targeted/Global/Analysis buttons
-  defaultMode="targeted"        // Default mode
   placeholder=""                // Custom placeholder
-  showSelectionIndicator={true} // Show selection status
 />
 ```
 
-### AI Response Format
+### Backend Implementation Guide
 
-When requesting edits, the AI returns replacement text in a code block:
+When using backend proxy mode, your backend should:
 
-````
-Here's a clearer version of the text:
+1. **Authenticate** the request using your auth system
+2. **Log/audit** the request for compliance
+3. **Build the AI prompt** using the paragraphs and selection context
+4. **Call your AI provider** (OpenAI, Anthropic, etc.)
+5. **Parse the response** into the expected format
+6. **Return edits** with paragraph IDs and new text
 
-```replacement
-Your improved text goes here.
+Example backend endpoint (pseudocode):
+
+```python
+@app.post("/api/ai/edit")
+async def ai_edit(request: AIEditRequest, user: User = Depends(get_current_user)):
+    # Audit logging
+    log_ai_request(user.id, request.document_id, request.prompt)
+
+    # Build prompt with document context
+    system_prompt = build_system_prompt(request.paragraphs, request.selection)
+
+    # Call AI provider
+    response = await openai.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": request.prompt}
+        ],
+        response_format={"type": "json_object"}
+    )
+
+    # Parse and return
+    result = json.loads(response.choices[0].message.content)
+    return AIEditResponse(
+        message=result["message"],
+        edits=result["edits"]
+    )
 ```
-````
-
-The `AIChatPanel` detects this format and shows an "Apply Edit" button.
 
 ### Security Notes
 
-- API key is stored in browser `localStorage`
-- Key is sent directly to OpenAI, never to any backend
-- Users are responsible for their own API usage
-- Recommend users set spending limits on their API keys
+**Direct Mode:**
+- API key stored in browser `localStorage`
+- Key sent directly to OpenAI
+- Suitable for demos/development only
+
+**Backend Proxy Mode (Recommended for Production):**
+- API keys stay on server
+- Full authentication/authorization control
+- Audit trail for compliance
+- Rate limiting and cost control
+- Can swap AI providers without frontend changes
 
 ### CSS Classes
 
@@ -1545,34 +1721,26 @@ AI components use these CSS classes for styling:
 .chat-message
 .chat-message--user
 .chat-message--assistant
-.replacement-preview
-.replacement-apply-btn
+.chat-message--system
+
+/* Edit Display */
+.ai-edit-row
+.ai-edit-link
+.ai-edit-text
+.ai-edit-deleted
+.ai-edit-inserted
+.ai-edit-actions
+.ai-edit-accept-btn
+.ai-edit-reject-btn
 
 /* Prompt Input */
 .prompt-input
-.prompt-mode-selector
-.prompt-mode-btn
 .prompt-textarea
 .prompt-submit-btn
-.selection-indicator
+
+/* Editor Persistent Selection */
+.persistent-selection
 ```
-
-### Layout Classes
-
-Pre-built layout classes for common configurations:
-
-```css
-/* Three-column: settings | editor | chat */
-.ai-editor-layout--three-column
-
-/* Two-column: editor | sidebar */
-.ai-editor-layout--two-column
-
-/* Stacked (mobile) */
-.ai-editor-layout--stacked
-```
-
-For full AI component documentation, see `docs/AI_EDITOR_DEMO.md`.
 
 ---
 
@@ -1614,4 +1782,4 @@ For full AI component documentation, see `docs/AI_EDITOR_DEMO.md`.
 
 ## License
 
-MIT License - see package.json for details.
+AGPL-3.0-only - see LICENSE file for details.
