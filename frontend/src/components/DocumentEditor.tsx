@@ -329,7 +329,20 @@ export function DocumentEditor({
         if (id === changeId) {
           setCurrentChangeIndex(index);
           setSelectedChangeId(changeId);
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          // Scroll with offset from top (2 lines worth of space)
+          const container = editorContainerRef.current;
+          if (container) {
+            const elementRect = el.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const offset = 40; // ~2 lines
+            const scrollTop =
+              container.scrollTop +
+              (elementRect.top - containerRect.top) -
+              offset;
+            container.scrollTo({ top: scrollTop, behavior: "smooth" });
+          } else {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
           return;
         }
         index++;

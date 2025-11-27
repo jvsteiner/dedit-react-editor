@@ -789,11 +789,7 @@ export function AIEditorProvider({
       console.log(`  New insertion IDs:`, newInsertionIds);
 
       // Match track change IDs to word changes
-      // IDs appear in document order, word changes were applied in reverse
-      // So we reverse the ID arrays to match
-      newDeletionIds.reverse();
-      newInsertionIds.reverse();
-
+      // Both IDs and wordChanges are in document order (forward)
       let delIdx = 0;
       let insIdx = 0;
       const edits: AIEdit[] = wordChanges.map((wc) => {
