@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import dts from "vite-plugin-dts";
 import { resolve } from "path";
+import { copyFileSync } from "fs";
 
 export default defineConfig({
   plugins: [
@@ -11,6 +12,17 @@ export default defineConfig({
       outDir: "dist",
       rollupTypes: true,
     }),
+    {
+      name: "copy-css",
+      closeBundle() {
+        // Copy the CSS file to dist after build
+        copyFileSync(
+          resolve(__dirname, "src/index.css"),
+          resolve(__dirname, "dist/styles.css"),
+        );
+        console.log("✓ Copied styles.css to dist/");
+      },
+    },
   ],
   build: {
     lib: {
