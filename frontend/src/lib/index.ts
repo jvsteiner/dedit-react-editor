@@ -63,6 +63,7 @@ export type {
 
   // Toolbar types
   ToolbarItem,
+  BuiltInToolbarItem,
 
   // Export types
   TemplateConfig,

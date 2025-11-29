@@ -1,4 +1,4 @@
-import {
+import React, {
   forwardRef,
   useImperativeHandle,
   useEffect,
@@ -22,6 +22,7 @@ import type {
   TrackedChange,
   ExportOptions,
   ToolbarItem,
+  BuiltInToolbarItem,
 } from "./types";
 
 /**
@@ -449,7 +450,14 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
     }
 
     const renderToolbarItem = (item: ToolbarItem, index: number) => {
-      switch (item) {
+      // If it's not a string, it's a custom React element
+      if (typeof item !== "string") {
+        return <React.Fragment key={`custom-${index}`}>{item}</React.Fragment>;
+      }
+
+      // Handle built-in toolbar items
+      const builtInItem = item as BuiltInToolbarItem;
+      switch (builtInItem) {
         case "separator":
           return <div key={`sep-${index}`} className="toolbar-separator" />;
         case "undo":

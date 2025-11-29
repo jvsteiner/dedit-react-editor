@@ -117,7 +117,10 @@ export interface ExtensionConfig {
 /**
  * Available toolbar items
  */
-export type ToolbarItem =
+/**
+ * Built-in toolbar item names
+ */
+export type BuiltInToolbarItem =
   | "bold"
   | "italic"
   | "separator"
@@ -134,6 +137,11 @@ export type ToolbarItem =
   | "addRowAfter"
   | "deleteRow"
   | "findReplace";
+
+/**
+ * Toolbar item - can be a built-in item name or a custom React element
+ */
+export type ToolbarItem = BuiltInToolbarItem | React.ReactNode;
 
 /**
  * Template configuration for export

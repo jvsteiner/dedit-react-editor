@@ -572,7 +572,89 @@ type ToolbarItem =
 />
 ```
 
-### Custom Toolbar
+### Custom Toolbar Items
+
+You can add custom React elements alongside built-in toolbar items. This is useful for adding application-specific buttons like export, save, or share:
+
+```tsx
+import { DocumentEditor, exportToWord } from 'dedit-react-editor';
+
+function MyEditor() {
+  const editorRef = useRef<EditorHandle>(null);
+  const [comments, setComments] = useState<CommentData[]>([]);
+
+  const handleExport = async () => {
+    if (!editorRef.current) return;
+    await exportToWord(
+      'http://localhost:8000/export',
+      editorRef.current.getContent(),
+      comments,
+      { filename: 'document.docx', template: { type: 'none' } }
+    );
+  };
+
+  return (
+    <DocumentEditor
+      ref={editorRef}
+      toolbar={[
+        "bold",
+        "italic",
+        "separator",
+        "undo",
+        "redo",
+        "separator",
+        // Custom export button
+        <button
+          key="export"
+          onClick={handleExport}
+          className="toolbar-btn"
+          title="Export to Word"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>,
+        "separator",
+        "trackChangesToggle",
+      ]}
+    />
+  );
+}
+```
+
+**Important:** Custom toolbar items must include a `key` prop to avoid React warnings.
+
+#### Type Definition
+
+```typescript
+import type { ToolbarItem, BuiltInToolbarItem } from 'dedit-react-editor';
+
+// BuiltInToolbarItem is the union of all string toolbar item names
+type BuiltInToolbarItem =
+  | "bold"
+  | "italic"
+  | "separator"
+  | "undo"
+  | "redo"
+  | "trackChangesToggle"
+  | "acceptChange"
+  | "rejectChange"
+  | "prevChange"
+  | "nextChange"
+  | "acceptAll"
+  | "rejectAll"
+  | "addRowBefore"
+  | "addRowAfter"
+  | "deleteRow"
+  | "findReplace";
+
+// ToolbarItem accepts either a built-in name or any React element
+type ToolbarItem = BuiltInToolbarItem | React.ReactNode;
+```
+
+### Fully Custom Toolbar
 
 For a fully custom toolbar, omit the `toolbar` prop and build your own using the ref methods:
 
@@ -1482,6 +1564,7 @@ import type {
 
   // Toolbar
   ToolbarItem,
+  BuiltInToolbarItem,
 
   // Export
   TemplateConfig,
