@@ -96,6 +96,90 @@ class NumberingTracker:
             {}
         )  # numId -> [level0_count, level1_count, ...]
         self._numbering_formats = self._extract_numbering_formats()
+        self._style_numbering = self._extract_style_numbering()
+
+    def _extract_style_numbering(self) -> dict:
+        """Extract numbering info from paragraph styles (numId and ilvl)."""
+        style_num_info = {}  # styleId -> {'numId': ..., 'ilvl': ...}
+
+        try:
+            styles_part = self.document.part.styles
+            if styles_part is None:
+                return style_num_info
+            styles_xml = styles_part._element
+        except (KeyError, AttributeError):
+            return style_num_info
+
+        # First pass: collect direct numPr from styles
+        for style in styles_xml.findall(qn("w:style")):
+            style_id = style.get(qn("w:styleId"))
+            if not style_id:
+                continue
+
+            pPr = style.find(qn("w:pPr"))
+            if pPr is not None:
+                numPr = pPr.find(qn("w:numPr"))
+                if numPr is not None:
+                    ilvl_elem = numPr.find(qn("w:ilvl"))
+                    numId_elem = numPr.find(qn("w:numId"))
+
+                    ilvl = (
+                        int(ilvl_elem.get(qn("w:val")))
+                        if ilvl_elem is not None
+                        else 0
+                    )
+                    numId = (
+                        numId_elem.get(qn("w:val"))
+                        if numId_elem is not None
+                        else None
+                    )
+
+                    if numId and numId != "0":
+                        style_num_info[style_id] = {
+                            "numId": numId,
+                            "ilvl": ilvl,
+                        }
+
+        # Second pass: resolve basedOn inheritance for styles without direct numPr
+        # We need multiple passes to handle deep inheritance chains
+        for _ in range(10):  # Max 10 levels of inheritance
+            made_changes = False
+            for style in styles_xml.findall(qn("w:style")):
+                style_id = style.get(qn("w:styleId"))
+                if not style_id or style_id in style_num_info:
+                    continue
+
+                basedOn = style.find(qn("w:basedOn"))
+                if basedOn is not None:
+                    base_style_id = basedOn.get(qn("w:val"))
+                    if base_style_id and base_style_id in style_num_info:
+                        style_num_info[style_id] = style_num_info[
+                            base_style_id
+                        ].copy()
+                        made_changes = True
+
+            if not made_changes:
+                break
+
+        return style_num_info
+
+    def get_numbering_from_style(
+        self, style_name: str
+    ) -> tuple[str, int] | None:
+        """Get numId and ilvl from a style name, resolving inheritance."""
+        # Style names may differ from style IDs - try to find a match
+        # First try exact match on style ID
+        if style_name in self._style_numbering:
+            info = self._style_numbering[style_name]
+            return info["numId"], info["ilvl"]
+
+        # Try matching by normalizing (remove spaces)
+        normalized = style_name.replace(" ", "")
+        for style_id, info in self._style_numbering.items():
+            if style_id.replace(" ", "") == normalized:
+                return info["numId"], info["ilvl"]
+
+        return None
 
     def _extract_numbering_formats(self) -> dict:
         """Extract numbering format definitions from document."""
@@ -316,18 +400,33 @@ def parse_paragraph(
         except ValueError:
             pass
 
-    # Get numbering info
+    # Get numbering info - check direct numPr first, then fall back to style
     numbering = None
-    if numbering_tracker and para._element.pPr is not None:
-        num_pr = para._element.pPr.find(qn("w:numPr"))
-        if num_pr is not None:
-            ilvl_elem = num_pr.find(qn("w:ilvl"))
-            num_id_elem = num_pr.find(qn("w:numId"))
-            if ilvl_elem is not None and num_id_elem is not None:
-                ilvl = int(ilvl_elem.get(qn("w:val")))
-                num_id = num_id_elem.get(qn("w:val"))
-                if num_id != "0":  # numId 0 means no numbering
-                    numbering = numbering_tracker.get_number(num_id, ilvl)
+    if numbering_tracker:
+        num_id = None
+        ilvl = None
+
+        # First check for direct numPr on the paragraph
+        if para._element.pPr is not None:
+            num_pr = para._element.pPr.find(qn("w:numPr"))
+            if num_pr is not None:
+                ilvl_elem = num_pr.find(qn("w:ilvl"))
+                num_id_elem = num_pr.find(qn("w:numId"))
+                if ilvl_elem is not None and num_id_elem is not None:
+                    ilvl = int(ilvl_elem.get(qn("w:val")))
+                    num_id = num_id_elem.get(qn("w:val"))
+
+        # If no direct numPr, check if the style defines numbering
+        if num_id is None and style_name:
+            style_numbering = numbering_tracker.get_numbering_from_style(
+                style_name
+            )
+            if style_numbering:
+                num_id, ilvl = style_numbering
+
+        # Compute the actual number if we have numbering info
+        if num_id and num_id != "0":
+            numbering = numbering_tracker.get_number(num_id, ilvl)
 
     return Paragraph(
         runs=runs, style=style_name, numbering=numbering, level=level

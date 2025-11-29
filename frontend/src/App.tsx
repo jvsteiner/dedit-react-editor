@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { DocumentEditor, type EditorHandle, type TipTapDocument } from "./lib";
 import FileUpload from "./components/FileUpload";
 import {
@@ -53,18 +53,37 @@ function AppContent() {
   const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
   const [showJson, setShowJson] = useState(false);
 
-  // Register editor with AI context when it becomes available
   const handleEditorChange = useCallback(
     (content: TipTapDocument | Record<string, unknown>) => {
       setEditorJson(content as Record<string, unknown>);
-      // Register editor with AI context on first change
+    },
+    [],
+  );
+
+  // Register editor with AI context when it becomes available
+  // Using an interval to check because the editor ref is populated after render
+  useEffect(() => {
+    const checkEditor = () => {
       const editor = editorRef.current?.getEditor();
       if (editor) {
         setEditor(editor);
+        return true;
       }
-    },
-    [setEditor],
-  );
+      return false;
+    };
+
+    // Check immediately
+    if (checkEditor()) return;
+
+    // If not available yet, poll briefly
+    const interval = setInterval(() => {
+      if (checkEditor()) {
+        clearInterval(interval);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [setEditor]);
 
   const handleUpload = async (file: File) => {
     setIsLoading(true);

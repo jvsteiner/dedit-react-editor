@@ -1,7 +1,6 @@
 import { useEditor } from "@tiptap/react";
 import { useMemo, useCallback } from "react";
 import Document from "@tiptap/extension-document";
-import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import Heading from "@tiptap/extension-heading";
 import Bold from "@tiptap/extension-bold";
@@ -13,6 +12,7 @@ import History from "@tiptap/extension-history";
 
 import Section from "../../extensions/Section";
 import TableWithId from "../../extensions/TableWithId";
+import { ParagraphWithId } from "../../extensions/ParagraphWithId";
 import { Insertion } from "../../extensions/Insertion";
 import { Deletion } from "../../extensions/Deletion";
 import { Comment } from "../../extensions/Comment";
@@ -67,7 +67,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
 
     return [
       Document,
-      Paragraph,
+      ParagraphWithId,
       Text,
       Heading.configure({
         levels: headingLevels,
