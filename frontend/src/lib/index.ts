@@ -82,3 +82,4 @@ export { Comment } from "../extensions/Comment";
 export { TrackChangesMode } from "../extensions/TrackChangesMode";
 export { Section } from "../extensions/Section";
 export { TableWithId } from "../extensions/TableWithId";
+export { ParagraphWithId } from "../extensions/ParagraphWithId";
