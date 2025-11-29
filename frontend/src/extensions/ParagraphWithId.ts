@@ -1,64 +1,138 @@
 import Paragraph from "@tiptap/extension-paragraph";
 import { v4 as uuidv4 } from "uuid";
 
+export interface ParagraphWithIdOptions {
+  /**
+   * Additional attributes to render to the DOM.
+   * Each attribute will be rendered as `data-{kebab-case-name}`.
+   *
+   * @example
+   * ```typescript
+   * ParagraphWithId.configure({
+   *   customAttributes: ["paragraphIndex", "sectionId"]
+   * })
+   * // Renders: <p data-paragraph-id="..." data-paragraph-index="5" data-section-id="abc">
+   * ```
+   */
+  customAttributes?: string[];
+}
+
+/**
+ * Converts camelCase to kebab-case
+ * e.g., "paragraphIndex" -> "paragraph-index"
+ */
+function toKebabCase(str: string): string {
+  return str.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+}
+
 /**
  * Extended Paragraph extension that adds unique IDs to each paragraph.
  * This allows AI edits to target specific paragraphs by ID rather than position.
+ *
+ * @example Basic usage (just IDs)
+ * ```typescript
+ * import { ParagraphWithId } from 'dedit-react-editor';
+ *
+ * const editor = useEditor({
+ *   extensions: [
+ *     ParagraphWithId,
+ *     // ... other extensions
+ *   ],
+ * });
+ * ```
+ *
+ * @example With custom attributes
+ * ```typescript
+ * import { ParagraphWithId } from 'dedit-react-editor';
+ *
+ * const editor = useEditor({
+ *   extensions: [
+ *     ParagraphWithId.configure({
+ *       customAttributes: ["paragraphIndex", "sectionId"]
+ *     }),
+ *     // ... other extensions
+ *   ],
+ * });
+ *
+ * // Document JSON:
+ * // { "type": "paragraph", "attrs": { "id": "abc", "paragraphIndex": 5, "sectionId": "sec-1" } }
+ *
+ * // Rendered HTML:
+ * // <p data-paragraph-id="abc" data-paragraph-index="5" data-section-id="sec-1">...</p>
+ * ```
  */
-export const ParagraphWithId = Paragraph.extend({
-  addAttributes() {
+export const ParagraphWithId = Paragraph.extend<ParagraphWithIdOptions>({
+  addOptions() {
     return {
+      customAttributes: [],
+    };
+  },
+
+  addAttributes() {
+    const baseAttributes: Record<string, unknown> = {
       ...this.parent?.(),
       id: {
         default: null,
-        parseHTML: (element) => {
+        parseHTML: (element: HTMLElement) => {
           // Get existing ID or generate new one
           return element.getAttribute("data-paragraph-id") || uuidv4();
         },
-        renderHTML: (attributes) => {
+        renderHTML: (attributes: Record<string, unknown>) => {
           // Generate ID if not present
           const id = attributes.id || uuidv4();
           return { "data-paragraph-id": id };
         },
       },
     };
+
+    // Add custom attributes if configured
+    const customAttributes = this.options.customAttributes || [];
+    for (const attrName of customAttributes) {
+      const dataAttrName = `data-${toKebabCase(attrName)}`;
+
+      baseAttributes[attrName] = {
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const value = element.getAttribute(dataAttrName);
+          // Try to parse as number if it looks like one
+          if (value !== null && /^\d+$/.test(value)) {
+            return parseInt(value, 10);
+          }
+          return value;
+        },
+        renderHTML: (attributes: Record<string, unknown>) => {
+          const value = attributes[attrName];
+          if (value === null || value === undefined) {
+            return {};
+          }
+          return { [dataAttrName]: String(value) };
+        },
+      };
+    }
+
+    return baseAttributes;
   },
 
   // Hook to ensure all paragraphs get IDs when document is loaded
   onCreate() {
-    console.log("[ParagraphWithId] onCreate hook running");
     const { tr } = this.editor.state;
     let modified = false;
-    let count = 0;
 
     this.editor.state.doc.descendants((node, pos) => {
       if (node.type.name === "paragraph") {
-        count++;
         if (!node.attrs.id) {
           const newId = uuidv4();
-          console.log(
-            `[ParagraphWithId] Assigning ID ${newId} to paragraph at pos ${pos}`,
-          );
           tr.setNodeMarkup(pos, undefined, {
             ...node.attrs,
             id: newId,
           });
           modified = true;
-        } else {
-          console.log(
-            `[ParagraphWithId] Paragraph at pos ${pos} already has ID: ${node.attrs.id}`,
-          );
         }
       }
     });
 
-    console.log(
-      `[ParagraphWithId] Found ${count} paragraphs, modified: ${modified}`,
-    );
-
     if (modified) {
       this.editor.view.dispatch(tr);
-      console.log("[ParagraphWithId] Dispatched transaction");
     }
   },
 });

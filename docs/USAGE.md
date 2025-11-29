@@ -1139,6 +1139,35 @@ The paragraph IDs are stored in the document JSON:
 }
 ```
 
+**Custom Attributes**
+
+You can configure additional attributes to be rendered to the DOM. This is useful when your backend assigns extra metadata (like paragraph indices) that you need to query in the DOM:
+
+```typescript
+import { ParagraphWithId } from 'dedit-react-editor';
+
+const editor = useEditor({
+  extensions: [
+    ParagraphWithId.configure({
+      customAttributes: ["paragraphIndex", "sectionId"]
+    }),
+    // ... other extensions
+  ],
+});
+```
+
+With this configuration:
+- Document JSON: `{ "type": "paragraph", "attrs": { "id": "abc", "paragraphIndex": 5, "sectionId": "sec-1" } }`
+- Rendered HTML: `<p data-paragraph-id="abc" data-paragraph-index="5" data-section-id="sec-1">...</p>`
+
+Attribute names are automatically converted from camelCase to kebab-case with a `data-` prefix. You can then query these elements:
+
+```typescript
+// Find paragraph by index
+const paragraph = document.querySelector('[data-paragraph-index="5"]');
+paragraph?.scrollIntoView({ behavior: 'smooth' });
+```
+
 #### PersistentSelection
 
 An extension that preserves the visual appearance of selected text when the editor loses focus. This is useful for AI editing workflows where users select text, then click on a prompt input to describe what to do with that selection.
