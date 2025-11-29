@@ -238,6 +238,8 @@ export interface DocumentEditorProps {
   extensionConfig?: ExtensionConfig;
   /** Toolbar items to display (e.g., ["bold", "italic"]) */
   toolbar?: ToolbarItem[];
+  /** Enable right-click context menu for track changes (default: false) */
+  enableContextMenu?: boolean;
 }
 
 /**

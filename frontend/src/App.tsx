@@ -336,6 +336,7 @@ function AppContent() {
                   author: "Current User",
                   onEnabledChange: setTrackChangesEnabled,
                 }}
+                enableContextMenu
               />
             </div>
             {showJson && (

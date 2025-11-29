@@ -209,6 +209,9 @@ interface DocumentEditorProps {
   // Toolbar
   toolbar?: ToolbarItem[];
 
+  // Context Menu
+  enableContextMenu?: boolean;        // Enable right-click context menu (default: false)
+
   // Extensions
   extensions?: Extension[];           // Additional extensions
   replaceExtensions?: Extension[];    // Replace all default extensions
@@ -587,6 +590,87 @@ const editorRef = useRef<EditorHandle>(null);
 
 <DocumentEditor ref={editorRef} content={content} />
 ```
+
+---
+
+## Context Menu
+
+The editor includes an optional right-click context menu for bulk track changes operations on selected text.
+
+### Enabling the Context Menu
+
+```tsx
+<DocumentEditor
+  content={content}
+  trackChanges={{
+    enabled: true,
+    author: "John Doe",
+  }}
+  enableContextMenu  // Enable right-click context menu
+/>
+```
+
+### Context Menu Features
+
+When enabled, right-clicking in the editor shows a context menu with:
+
+- **Accept Changes in Selection** - Accepts all track changes within the selected text
+- **Reject Changes in Selection** - Rejects all track changes within the selected text
+
+If no changes exist in the current selection, the menu displays "No changes in selection".
+
+### Styling the Context Menu
+
+The context menu uses these CSS classes:
+
+```css
+/* Context menu container */
+.editor-context-menu {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  min-width: 200px;
+  z-index: 1000;
+}
+
+/* Menu items */
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.context-menu-item:hover {
+  background: #f5f5f5;
+}
+
+/* Accept button styling */
+.context-menu-item--accept {
+  color: #28a745;
+}
+
+/* Reject button styling */
+.context-menu-item--reject {
+  color: #dc3545;
+}
+
+/* Disabled state */
+.context-menu-item--disabled {
+  color: #999;
+  cursor: default;
+}
+```
+
+**Note:** The default styles (`dedit-react-editor/styles.css`) already include context menu styling.
 
 ---
 

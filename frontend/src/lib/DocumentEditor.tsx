@@ -84,6 +84,7 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
       replaceExtensions,
       extensionConfig,
       toolbar,
+      enableContextMenu = false,
     } = props;
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
@@ -234,6 +235,11 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
     // NOTE: All hooks must be called before any early returns to comply with React's Rules of Hooks
     const [currentChangeIndex, setCurrentChangeIndex] = useState(-1);
     const [showFindReplace, setShowFindReplace] = useState(false);
+    const [contextMenu, setContextMenu] = useState<{
+      x: number;
+      y: number;
+      hasChangesInSelection: boolean;
+    } | null>(null);
 
     // Reset index when changes array changes significantly
     useEffect(() => {
@@ -308,6 +314,103 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
         rejectChange(change.id);
       }
     }, [currentChangeIndex, changes, rejectChange]);
+
+    // Get changes within the current text selection (for context menu)
+    const getChangesInSelection = useCallback((): TrackedChange[] => {
+      if (!editor) return [];
+
+      const { from, to } = editor.state.selection;
+      if (from === to) return []; // No selection
+
+      const changesInSelection: TrackedChange[] = [];
+      const doc = editor.state.doc;
+
+      doc.nodesBetween(from, to, (node, pos) => {
+        if (node.isText && node.marks) {
+          node.marks.forEach((mark) => {
+            if (
+              mark.type.name === "insertion" ||
+              mark.type.name === "deletion"
+            ) {
+              const markFrom = pos;
+              const markTo = pos + node.nodeSize;
+              if (markFrom < to && markTo > from) {
+                const existing = changesInSelection.find(
+                  (c) => c.id === mark.attrs.id,
+                );
+                if (!existing) {
+                  changesInSelection.push({
+                    id: mark.attrs.id,
+                    type: mark.type.name as "insertion" | "deletion",
+                    author: mark.attrs.author,
+                    date: mark.attrs.date,
+                    text: node.text || "",
+                    from: markFrom,
+                    to: markTo,
+                  });
+                }
+              }
+            }
+          });
+        }
+      });
+
+      return changesInSelection;
+    }, [editor]);
+
+    // Accept all changes in the current selection
+    const acceptChangesInSelection = useCallback(() => {
+      const changesInSel = getChangesInSelection();
+      // Process from end to start to preserve positions
+      [...changesInSel]
+        .sort((a, b) => b.from - a.from)
+        .forEach((change) => {
+          acceptChange(change.id);
+        });
+      setContextMenu(null);
+    }, [getChangesInSelection, acceptChange]);
+
+    // Reject all changes in the current selection
+    const rejectChangesInSelection = useCallback(() => {
+      const changesInSel = getChangesInSelection();
+      // Process from end to start to preserve positions
+      [...changesInSel]
+        .sort((a, b) => b.from - a.from)
+        .forEach((change) => {
+          rejectChange(change.id);
+        });
+      setContextMenu(null);
+    }, [getChangesInSelection, rejectChange]);
+
+    // Handle context menu (right-click)
+    const handleContextMenu = useCallback(
+      (e: React.MouseEvent) => {
+        if (!enableContextMenu) return;
+        e.preventDefault();
+        const changesInSel = getChangesInSelection();
+        setContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          hasChangesInSelection: changesInSel.length > 0,
+        });
+      },
+      [enableContextMenu, getChangesInSelection],
+    );
+
+    // Close context menu when clicking elsewhere
+    useEffect(() => {
+      const handleClick = () => setContextMenu(null);
+      const handleScroll = () => setContextMenu(null);
+
+      if (contextMenu) {
+        document.addEventListener("click", handleClick);
+        document.addEventListener("scroll", handleScroll, true);
+        return () => {
+          document.removeEventListener("click", handleClick);
+          document.removeEventListener("scroll", handleScroll, true);
+        };
+      }
+    }, [contextMenu]);
 
     const trackChangesEnabled = trackChanges?.enabled ?? false;
 
@@ -747,9 +850,69 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
             onClose={() => setShowFindReplace(false)}
           />
         )}
-        <div className="editor-scroll-container" ref={editorContainerRef}>
+        <div
+          className="editor-scroll-container"
+          ref={editorContainerRef}
+          onContextMenu={handleContextMenu}
+        >
           <EditorContent editor={editor} className={classNames.content} />
         </div>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <div
+            className="editor-context-menu"
+            style={{
+              position: "fixed",
+              left: contextMenu.x,
+              top: contextMenu.y,
+            }}
+          >
+            {contextMenu.hasChangesInSelection ? (
+              <>
+                <button
+                  type="button"
+                  className="context-menu-item context-menu-item--accept"
+                  onClick={acceptChangesInSelection}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Accept Changes in Selection
+                </button>
+                <button
+                  type="button"
+                  className="context-menu-item context-menu-item--reject"
+                  onClick={rejectChangesInSelection}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                  Reject Changes in Selection
+                </button>
+              </>
+            ) : (
+              <div className="context-menu-item context-menu-item--disabled">
+                No changes in selection
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   },
