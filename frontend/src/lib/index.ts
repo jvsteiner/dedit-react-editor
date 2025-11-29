@@ -15,6 +15,28 @@ export type {
 // Utilities
 export { createExportPayload, downloadBlob, exportToWord } from "./utils";
 
+// AI Components
+export { APIKeyInput, AIChatPanel, PromptInput } from "../components/ai";
+
+// AI Context and Hooks
+export {
+  AIEditorProvider,
+  useAIEditor,
+  useAIEditorOptional,
+} from "../context/AIEditorContext";
+
+// AI Types
+export type {
+  AIEditorState,
+  AIEditorConfig,
+  ChatMessage,
+  SelectionContext,
+  AIEdit,
+  AIResponse,
+  AIEditRequest,
+  AIEditResponse,
+} from "../context/AIEditorContext";
+
 // Types
 export type {
   // Core document types

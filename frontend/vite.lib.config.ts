@@ -8,7 +8,12 @@ export default defineConfig({
   plugins: [
     react(),
     dts({
-      include: ["src/lib/**/*", "src/extensions/**/*"],
+      include: [
+        "src/lib/**/*",
+        "src/extensions/**/*",
+        "src/components/ai/**/*",
+        "src/context/**/*",
+      ],
       outDir: "dist",
       rollupTypes: true,
     }),

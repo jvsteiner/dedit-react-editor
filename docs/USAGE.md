@@ -45,6 +45,7 @@ The package exports:
 - `dist/index.js` - ES Module build
 - `dist/index.cjs` - CommonJS build
 - `dist/index.d.ts` - TypeScript declarations
+- `dist/styles.css` - Default styles (optional but recommended)
 
 ---
 
@@ -54,6 +55,8 @@ The package exports:
 
 ```tsx
 import { DocumentEditor } from 'dedit-react-editor';
+// Import styles (required for default styling)
+import 'dedit-react-editor/styles.css';
 
 function App() {
   const [content, setContent] = useState(null);
@@ -72,6 +75,7 @@ function App() {
 
 ```tsx
 import { DocumentEditor, EditorHandle } from 'dedit-react-editor';
+import 'dedit-react-editor/styles.css';
 import { useRef, useState } from 'react';
 
 function App() {
@@ -552,7 +556,36 @@ const editorRef = useRef<EditorHandle>(null);
 
 ## Styling
 
-The component is unstyled by default. Add your own CSS or use the reference styles from the sample application.
+### Importing Default Styles
+
+The library ships with a complete set of default styles. Import them in your application:
+
+```tsx
+import 'dedit-react-editor/styles.css';
+```
+
+This includes styles for:
+- Editor toolbar and buttons
+- Track changes (insertions/deletions)
+- Comments and tooltips
+- AI components (chat panel, prompt input, API key input)
+- Find & replace bar
+
+**For Tailwind CSS users:** The styles are plain CSS and work alongside Tailwind. Import the stylesheet after your Tailwind imports to ensure proper cascade order:
+
+```css
+/* globals.css */
+@import "tailwindcss";
+```
+
+```tsx
+// In your component or layout
+import 'dedit-react-editor/styles.css';
+```
+
+### Custom Styling
+
+If you prefer custom styles, you can skip the CSS import and style the components yourself using the class names below.
 
 ### CSS Classes
 
@@ -1151,6 +1184,7 @@ import {
   CommentData,
   exportToWord,
 } from 'dedit-react-editor';
+import 'dedit-react-editor/styles.css';
 
 interface DocumentData {
   id: string;
@@ -1293,6 +1327,7 @@ export default FullEditor;
 
 ```tsx
 import { useDocumentEditor, useTrackChanges, useComments } from 'dedit-react-editor';
+import 'dedit-react-editor/styles.css';
 import { EditorContent } from '@tiptap/react';
 
 function CustomEditor({ initialContent, comments: commentData }) {
@@ -1361,6 +1396,92 @@ function CustomEditor({ initialContent, comments: commentData }) {
 }
 ```
 
+### Complete AI Editor Example
+
+A full example combining the DocumentEditor with all AI components:
+
+```tsx
+import { useState, useCallback } from 'react';
+import {
+  DocumentEditor,
+  AIEditorProvider,
+  useAIEditor,
+  APIKeyInput,
+  AIChatPanel,
+  PromptInput,
+} from 'dedit-react-editor';
+import 'dedit-react-editor/styles.css';
+
+function App() {
+  return (
+    <AIEditorProvider config={{ aiAuthorName: "AI Assistant" }}>
+      <AIEditorLayout />
+    </AIEditorProvider>
+  );
+}
+
+function AIEditorLayout() {
+  const { setEditor, apiKey } = useAIEditor();
+  const [content, setContent] = useState(null);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '1rem', height: '100vh', padding: '1rem' }}>
+      {/* Left: Editor */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <DocumentEditor
+          initialContent={content}
+          onChange={setContent}
+          onEditorReady={setEditor}
+          trackChanges={{
+            enabled: true,
+            author: "AI Assistant",
+          }}
+          toolbar={[
+            "bold",
+            "italic",
+            "separator",
+            "trackChangesToggle",
+            "prevChange",
+            "nextChange",
+            "acceptChange",
+            "rejectChange",
+          ]}
+        />
+      </div>
+
+      {/* Right: AI Panel */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* API Key (only needed for direct OpenAI mode) */}
+        <APIKeyInput showLabel />
+
+        {/* Chat history with edit controls */}
+        <AIChatPanel 
+          showHeader 
+          headerTitle="AI Assistant" 
+          maxHeight="400px" 
+        />
+
+        {/* Prompt input */}
+        <PromptInput 
+          placeholder="Ask AI to edit the document..."
+          showSelectionIndicator 
+        />
+      </div>
+    </div>
+  );
+}
+
+export default App;
+```
+
+**How it works:**
+1. User enters their OpenAI API key in `APIKeyInput`
+2. User selects text in the editor (optional) and types a prompt
+3. `PromptInput` sends the request to OpenAI with document context
+4. AI response appears in `AIChatPanel` with clickable edit links
+5. Each edit shows the change with Accept/Reject buttons
+6. Accepted edits remain as track changes; rejected edits are reverted
+
 ---
 
 ## AI-Assisted Editing
@@ -1382,13 +1503,14 @@ For development or demos where users provide their own API key:
 
 ```tsx
 import {
+  DocumentEditor,
   AIEditorProvider,
   useAIEditor,
   APIKeyInput,
   AIChatPanel,
   PromptInput,
-} from 'dedit-react-editor/ai';
-import { DocumentEditor } from 'dedit-react-editor';
+} from 'dedit-react-editor';
+import 'dedit-react-editor/styles.css';
 
 function AIEditorApp() {
   return (
@@ -1440,7 +1562,8 @@ import {
   AIEditorProvider,
   AIEditRequest,
   AIEditResponse,
-} from 'dedit-react-editor/ai';
+} from 'dedit-react-editor';
+import 'dedit-react-editor/styles.css';
 
 function AIEditorApp() {
   // Custom handler routes all AI calls through your backend
