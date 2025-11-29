@@ -13,6 +13,7 @@ const persistentSelectionKey = new PluginKey("persistentSelection");
  * click on a prompt input to describe what to do with that selection.
  *
  * The extension:
+ * - Automatically sets up focus/blur event handlers
  * - Stores the selection range when the editor loses focus
  * - Renders inline decorations with the `.persistent-selection` CSS class
  * - Clears the decorations when the editor regains focus
@@ -28,35 +29,10 @@ const persistentSelectionKey = new PluginKey("persistentSelection");
  *     PersistentSelection,
  *   ],
  * });
- *
- * // Set up focus/blur handlers
- * useEffect(() => {
- *   if (!editor) return;
- *
- *   const handleFocus = () => {
- *     editor.storage.persistentSelection.savedSelection = null;
- *     editor.view.dispatch(editor.state.tr);
- *   };
- *
- *   const handleBlur = () => {
- *     const { from, to } = editor.state.selection;
- *     if (from !== to) {
- *       editor.storage.persistentSelection.savedSelection = { from, to };
- *       editor.view.dispatch(editor.state.tr);
- *     }
- *   };
- *
- *   editor.on("focus", handleFocus);
- *   editor.on("blur", handleBlur);
- *
- *   return () => {
- *     editor.off("focus", handleFocus);
- *     editor.off("blur", handleBlur);
- *   };
- * }, [editor]);
+ * // That's it! Focus/blur handlers are set up automatically.
  * ```
  *
- * CSS needed:
+ * CSS needed (included in dedit-react-editor/styles.css):
  * ```css
  * .tiptap .persistent-selection {
  *   background-color: #dfdfdf;
@@ -71,7 +47,53 @@ export const PersistentSelection = Extension.create({
   addStorage() {
     return {
       savedSelection: null as { from: number; to: number } | null,
+      // Store handler references for cleanup
+      _handleFocus: null as (() => void) | null,
+      _handleBlur: null as (() => void) | null,
     };
+  },
+
+  onCreate() {
+    const { editor } = this;
+
+    // Handler to clear persistent selection when editor regains focus
+    const handleFocus = () => {
+      editor.storage.persistentSelection.savedSelection = null;
+      // Force redraw to remove decorations
+      editor.view.dispatch(editor.state.tr);
+    };
+
+    // Handler to save selection when editor loses focus
+    const handleBlur = () => {
+      const { from, to } = editor.state.selection;
+      if (from !== to) {
+        // Only save if there's an actual selection (not just a cursor)
+        editor.storage.persistentSelection.savedSelection = { from, to };
+        // Force redraw to show decorations
+        editor.view.dispatch(editor.state.tr);
+      }
+    };
+
+    // Store references for cleanup
+    editor.storage.persistentSelection._handleFocus = handleFocus;
+    editor.storage.persistentSelection._handleBlur = handleBlur;
+
+    // Attach event listeners
+    editor.on("focus", handleFocus);
+    editor.on("blur", handleBlur);
+  },
+
+  onDestroy() {
+    const { editor } = this;
+    const { _handleFocus, _handleBlur } = editor.storage.persistentSelection;
+
+    // Clean up event listeners
+    if (_handleFocus) {
+      editor.off("focus", _handleFocus);
+    }
+    if (_handleBlur) {
+      editor.off("blur", _handleBlur);
+    }
   },
 
   addProseMirrorPlugins() {

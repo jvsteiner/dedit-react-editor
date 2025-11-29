@@ -210,33 +210,8 @@ export function DocumentEditor({
   // Track selected change ID for CSS-based highlighting
   const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
 
-  // Save selection when editor loses focus, restore highlight via extension storage
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleFocus = () => {
-      // Clear the persistent selection highlight
-      editor.storage.persistentSelection.savedSelection = null;
-      editor.view.dispatch(editor.state.tr); // Force redraw
-    };
-
-    const handleBlur = () => {
-      const { from, to } = editor.state.selection;
-      if (from !== to) {
-        // Save selection to extension storage for decoration
-        editor.storage.persistentSelection.savedSelection = { from, to };
-        editor.view.dispatch(editor.state.tr); // Force redraw
-      }
-    };
-
-    editor.on("focus", handleFocus);
-    editor.on("blur", handleBlur);
-
-    return () => {
-      editor.off("focus", handleFocus);
-      editor.off("blur", handleBlur);
-    };
-  }, [editor]);
+  // Note: Focus/blur handlers for persistent selection are now built into
+  // the PersistentSelection extension itself (see onCreate/onDestroy hooks)
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{

@@ -1143,9 +1143,10 @@ The paragraph IDs are stored in the document JSON:
 
 An extension that preserves the visual appearance of selected text when the editor loses focus. This is useful for AI editing workflows where users select text, then click on a prompt input to describe what to do with that selection.
 
+The extension is **fully self-contained** - it automatically sets up focus/blur event handlers via TipTap's lifecycle hooks. No additional setup required:
+
 ```typescript
 import { useEditor } from '@tiptap/react';
-import { useEffect } from 'react';
 import { PersistentSelection } from 'dedit-react-editor';
 
 const editor = useEditor({
@@ -1154,35 +1155,18 @@ const editor = useEditor({
     // ... other extensions
   ],
 });
-
-// Set up focus/blur handlers to save/restore selection
-useEffect(() => {
-  if (!editor) return;
-
-  const handleFocus = () => {
-    // Clear the persistent selection highlight when editor regains focus
-    editor.storage.persistentSelection.savedSelection = null;
-    editor.view.dispatch(editor.state.tr);
-  };
-
-  const handleBlur = () => {
-    const { from, to } = editor.state.selection;
-    if (from !== to) {
-      // Save selection when editor loses focus
-      editor.storage.persistentSelection.savedSelection = { from, to };
-      editor.view.dispatch(editor.state.tr);
-    }
-  };
-
-  editor.on("focus", handleFocus);
-  editor.on("blur", handleBlur);
-
-  return () => {
-    editor.off("focus", handleFocus);
-    editor.off("blur", handleBlur);
-  };
-}, [editor]);
+// That's it! Focus/blur handlers are set up automatically.
 ```
+
+**How it works:**
+1. User selects text in the editor
+2. User clicks outside the editor (e.g., on an AI prompt input)
+3. The `blur` event fires → selection `{from, to}` is saved to storage
+4. The plugin renders `.persistent-selection` decorations on the saved range
+5. A gray highlight appears, mimicking the native selection
+6. User clicks back in the editor
+7. The `focus` event fires → saved selection is cleared, decorations removed
+8. Native browser selection takes over again
 
 CSS required for the persistent selection highlight:
 
