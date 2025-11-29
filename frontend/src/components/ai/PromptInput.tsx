@@ -64,17 +64,20 @@ export function PromptInput({
     }
   }, [prompt]);
 
+  // Check if we can send prompts (either have API key or custom handler)
+  const canSendPrompts = apiKey || config.onAIRequest;
+
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
-      if (!prompt.trim() || isLoading || !apiKey) return;
+      if (!prompt.trim() || isLoading || !canSendPrompts) return;
 
       await sendPrompt(prompt.trim());
       setPrompt("");
       // Don't clear context items - they persist in chat history
       // and are cleared when the user clears the chat
     },
-    [prompt, isLoading, apiKey, sendPrompt],
+    [prompt, isLoading, canSendPrompts, sendPrompt],
   );
 
   const handleKeyDown = useCallback(
@@ -147,7 +150,7 @@ export function PromptInput({
   const getPlaceholder = (): string => {
     if (placeholder) return placeholder;
 
-    if (!apiKey) {
+    if (!canSendPrompts) {
       return "Enter your OpenAI API key first...";
     }
 
@@ -264,13 +267,13 @@ export function PromptInput({
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={getPlaceholder()}
-            disabled={isLoading || !apiKey}
+            disabled={isLoading || !canSendPrompts}
             rows={1}
           />
           <button
             type="submit"
             className="prompt-submit-btn"
-            disabled={!prompt.trim() || isLoading || !apiKey}
+            disabled={!prompt.trim() || isLoading || !canSendPrompts}
             title="Send prompt"
           >
             {isLoading ? (
