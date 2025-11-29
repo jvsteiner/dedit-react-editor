@@ -55,6 +55,62 @@ export interface SelectionRange {
 }
 
 /**
+ * Context item for additional content to include in AI prompts.
+ * Developers implement the ContextItemResolver to convert drop events into these items.
+ *
+ * @example
+ * ```typescript
+ * const item: ContextItem = {
+ *   id: crypto.randomUUID(),
+ *   label: "config.json",
+ *   content: '{ "key": "value" }',
+ *   type: "file",
+ *   mimeType: "application/json",
+ * };
+ * ```
+ */
+export interface ContextItem {
+  /** Unique identifier for this item */
+  id: string;
+  /** Display label shown in the pill (e.g., filename) */
+  label: string;
+  /** The actual content to include in the LLM prompt */
+  content: string;
+  /** Category of content (e.g., "file", "url", "snippet", "api-response") */
+  type: string;
+  /** Optional MIME type (e.g., "application/json", "text/markdown") */
+  mimeType?: string;
+  /** Optional developer-defined metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Function that resolves a DataTransfer (from drag/drop) into ContextItems.
+ * Developers implement this to handle their specific drag sources.
+ *
+ * @example
+ * ```typescript
+ * const resolver: ContextItemResolver = async (dataTransfer) => {
+ *   const items: ContextItem[] = [];
+ *   for (const file of Array.from(dataTransfer.files)) {
+ *     const content = await file.text();
+ *     items.push({
+ *       id: crypto.randomUUID(),
+ *       label: file.name,
+ *       content,
+ *       type: "file",
+ *       mimeType: file.type,
+ *     });
+ *   }
+ *   return items;
+ * };
+ * ```
+ */
+export type ContextItemResolver = (
+  dataTransfer: DataTransfer,
+) => Promise<ContextItem[]> | ContextItem[];
+
+/**
  * Track changes configuration
  */
 export interface TrackChangesConfig {

@@ -2193,7 +2193,345 @@ When the editor loses focus (e.g., when clicking in the chat panel), the current
 <PromptInput
   className=""                  // Additional CSS class
   placeholder=""                // Custom placeholder
+  showSelectionIndicator={true} // Show selection status indicator
 />
+```
+
+### Context Items (Drag & Drop)
+
+The `PromptInput` component supports drag-and-drop of additional context that gets included in AI prompts. This allows users to drag files, text snippets, or other content into the prompt area to provide extra context for the AI.
+
+#### How It Works
+
+1. **User drags content** (file, text, etc.) onto the `PromptInput` area
+2. **Resolver function** converts the drop into `ContextItem` objects
+3. **Pills appear** showing what context is attached
+4. **User can remove** items by clicking the × button
+5. **Context included** in the AI prompt when sent
+6. **Context persists** - pills remain visible for follow-up questions
+7. **Stored in chat history** - context items are saved with each message
+8. **Cleared with chat** - items are only cleared when user clears the chat history
+
+#### ContextItem Type
+
+Each piece of additional context is represented as a `ContextItem`:
+
+```typescript
+interface ContextItem {
+  /** Unique identifier for this item */
+  id: string;
+  
+  /** Display label shown in the pill (e.g., filename) */
+  label: string;
+  
+  /** The actual content to include in the LLM prompt */
+  content: string;
+  
+  /** Category of content - shown as a badge in the pill */
+  type: string;  // e.g., "file", "url", "snippet", "api-response"
+  
+  /** Optional MIME type (e.g., "application/json", "text/markdown") */
+  mimeType?: string;
+  
+  /** Optional developer-defined metadata */
+  metadata?: Record<string, unknown>;
+}
+```
+
+The `type` field determines what badge appears in the pill UI:
+- `"file"` → displays "FILE" badge
+- `"snippet"` → displays "SNIPPET" badge  
+- `"url"` → displays "URL" badge
+- Any custom string → displayed as-is in uppercase
+
+#### ContextItemResolver
+
+To enable drag-and-drop, provide a resolver function that converts `DataTransfer` objects into `ContextItem` arrays:
+
+```typescript
+type ContextItemResolver = (
+  dataTransfer: DataTransfer,
+) => Promise<ContextItem[]> | ContextItem[];
+```
+
+#### Enabling Context Items
+
+Configure the resolver via `AIEditorProvider`:
+
+```tsx
+import {
+  AIEditorProvider,
+  useAIEditor,
+  type ContextItem,
+  type ContextItemResolver,
+} from 'dedit-react-editor';
+
+// Define your resolver - this determines what can be dropped
+const myContextResolver: ContextItemResolver = async (dataTransfer) => {
+  const items: ContextItem[] = [];
+
+  // Handle dropped files
+  for (const file of Array.from(dataTransfer.files)) {
+    // Only handle text-based files
+    if (file.type.startsWith('text/') || 
+        file.type === 'application/json' ||
+        file.name.endsWith('.md') ||
+        file.name.endsWith('.txt')) {
+      const content = await file.text();
+      items.push({
+        id: crypto.randomUUID(),
+        label: file.name,
+        content: content.slice(0, 10000),  // Truncate large files
+        type: 'file',
+        mimeType: file.type || 'text/plain',
+      });
+    }
+  }
+
+  // Handle dropped plain text
+  const text = dataTransfer.getData('text/plain');
+  if (text && items.length === 0) {
+    items.push({
+      id: crypto.randomUUID(),
+      label: 'Dropped text',
+      content: text,
+      type: 'snippet',
+    });
+  }
+
+  return items;
+};
+
+function App() {
+  return (
+    <AIEditorProvider aiAuthorName="AI Assistant">
+      <AppWithContextItems />
+    </AIEditorProvider>
+  );
+}
+
+function AppWithContextItems() {
+  const { setConfig } = useAIEditor();
+
+  // Configure the resolver on mount
+  useEffect(() => {
+    setConfig({ onResolveContextItems: myContextResolver });
+  }, [setConfig]);
+
+  return (
+    // ... your editor layout
+    <PromptInput showSelectionIndicator />
+  );
+}
+```
+
+#### Custom Resolvers
+
+You can create resolvers for any drag source your application supports:
+
+**File System Files:**
+```typescript
+const fileResolver: ContextItemResolver = async (dataTransfer) => {
+  const items: ContextItem[] = [];
+  for (const file of Array.from(dataTransfer.files)) {
+    const content = await file.text();
+    items.push({
+      id: crypto.randomUUID(),
+      label: file.name,
+      content,
+      type: 'file',
+      mimeType: file.type,
+      metadata: { size: file.size },
+    });
+  }
+  return items;
+};
+```
+
+**URLs (fetch content):**
+```typescript
+const urlResolver: ContextItemResolver = async (dataTransfer) => {
+  const url = dataTransfer.getData('text/uri-list') || 
+              dataTransfer.getData('text/plain');
+  
+  if (url?.startsWith('http')) {
+    const response = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}`);
+    const content = await response.text();
+    return [{
+      id: crypto.randomUUID(),
+      label: new URL(url).hostname,
+      content,
+      type: 'url',
+      metadata: { url },
+    }];
+  }
+  return [];
+};
+```
+
+**Custom Application Data:**
+```typescript
+const customDataResolver: ContextItemResolver = (dataTransfer) => {
+  // Your app can set custom data types during drag operations
+  const customData = dataTransfer.getData('application/x-my-app-data');
+  if (customData) {
+    const parsed = JSON.parse(customData);
+    return [{
+      id: crypto.randomUUID(),
+      label: parsed.name,
+      content: parsed.content,
+      type: parsed.type,
+      metadata: parsed,
+    }];
+  }
+  return [];
+};
+```
+
+**Combined Resolver:**
+```typescript
+const combinedResolver: ContextItemResolver = async (dataTransfer) => {
+  // Try each resolver in order
+  let items = await fileResolver(dataTransfer);
+  if (items.length > 0) return items;
+  
+  items = await urlResolver(dataTransfer);
+  if (items.length > 0) return items;
+  
+  items = customDataResolver(dataTransfer);
+  return items;
+};
+```
+
+#### Programmatic Context Item Management
+
+You can also manage context items programmatically via the `useAIEditor` hook:
+
+```typescript
+const {
+  contextItems,        // Current context items array
+  addContextItem,      // Add a single item
+  addContextItems,     // Add multiple items
+  removeContextItem,   // Remove by ID
+  clearContextItems,   // Remove all
+  resolveContextItems, // Manually resolve a DataTransfer
+} = useAIEditor();
+
+// Add context programmatically (e.g., from a file picker)
+const handleFileSelect = async (file: File) => {
+  const content = await file.text();
+  addContextItem({
+    id: crypto.randomUUID(),
+    label: file.name,
+    content,
+    type: 'file',
+    mimeType: file.type,
+  });
+};
+
+// Add from API response
+const handleApiResponse = (response: ApiData) => {
+  addContextItem({
+    id: crypto.randomUUID(),
+    label: `API: ${response.endpoint}`,
+    content: JSON.stringify(response.data, null, 2),
+    type: 'api-response',
+    mimeType: 'application/json',
+  });
+};
+```
+
+#### How Context Items Appear in Prompts
+
+When context items are present, they're included in the system prompt sent to the AI:
+
+```
+## Additional Context
+The user has provided the following additional context items. Use this information to inform your response:
+
+### config.json (file, application/json)
+```
+{ "apiUrl": "https://api.example.com", "debug": true }
+```
+
+### Notes (snippet)
+```
+Remember to use the new API format for all requests.
+```
+```
+
+#### Styling Context Items
+
+The default styles include styling for context item pills. To customize:
+
+```css
+/* Container for all pills */
+.prompt-context-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Individual pill */
+.context-item-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: #e7f3ff;
+  border: 1px solid #b3d7ff;
+  border-radius: 12px;
+  font-size: 0.75rem;
+}
+
+/* Type badge (FILE, URL, etc.) */
+.context-item-type {
+  color: #0066cc;
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  background: #cce5ff;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+}
+
+/* Label text */
+.context-item-label {
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+/* Remove button */
+.context-item-remove {
+  cursor: pointer;
+  color: #666;
+}
+
+.context-item-remove:hover {
+  color: #cc0000;
+}
+
+/* Drag-over state */
+.prompt-input.drag-over {
+  border: 2px dashed #0066cc;
+  background: #f0f7ff;
+}
+
+/* Drop overlay */
+.prompt-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 102, 204, 0.1);
+  color: #0066cc;
+  font-weight: 500;
+}
 ```
 
 ### Backend Implementation Guide

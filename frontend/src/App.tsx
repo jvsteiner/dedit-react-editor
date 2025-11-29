@@ -1,5 +1,11 @@
-import { useState, useCallback, useRef } from "react";
-import { DocumentEditor, type EditorHandle, type TipTapDocument } from "./lib";
+import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  DocumentEditor,
+  type EditorHandle,
+  type TipTapDocument,
+  type ContextItem,
+  type ContextItemResolver,
+} from "./lib";
 import FileUpload from "./components/FileUpload";
 import {
   AIEditorProvider,
@@ -8,6 +14,60 @@ import {
   AIChatPanel,
   PromptInput,
 } from "./components/ai";
+
+/**
+ * Sample context item resolver that handles file drops.
+ * Reads text files and creates context items from them.
+ */
+const sampleContextItemResolver: ContextItemResolver = async (dataTransfer) => {
+  const items: ContextItem[] = [];
+
+  // Handle dropped files
+  for (const file of Array.from(dataTransfer.files)) {
+    // Only handle text-based files
+    if (
+      file.type.startsWith("text/") ||
+      file.type === "application/json" ||
+      file.name.endsWith(".md") ||
+      file.name.endsWith(".txt") ||
+      file.name.endsWith(".json") ||
+      file.name.endsWith(".csv")
+    ) {
+      try {
+        const content = await file.text();
+        items.push({
+          id: crypto.randomUUID(),
+          label: file.name,
+          content:
+            content.length > 10000
+              ? content.slice(0, 10000) + "\n... (truncated)"
+              : content,
+          type: "file",
+          mimeType: file.type || "text/plain",
+          metadata: {
+            size: file.size,
+            lastModified: file.lastModified,
+          },
+        });
+      } catch (err) {
+        console.error(`Failed to read file ${file.name}:`, err);
+      }
+    }
+  }
+
+  // Handle dropped text
+  const text = dataTransfer.getData("text/plain");
+  if (text && items.length === 0) {
+    items.push({
+      id: crypto.randomUUID(),
+      label: "Dropped text",
+      content: text.length > 5000 ? text.slice(0, 5000) + "..." : text,
+      type: "snippet",
+    });
+  }
+
+  return items;
+};
 
 interface CommentData {
   id: string;
@@ -385,9 +445,21 @@ function AppContent() {
 function App() {
   return (
     <AIEditorProvider aiAuthorName="AI Assistant">
-      <AppContent />
+      <AppContentWithConfig />
     </AIEditorProvider>
   );
+}
+
+// Wrapper that sets the config after provider is mounted
+function AppContentWithConfig() {
+  const { setConfig } = useAIEditor();
+
+  // Set the context item resolver on mount
+  useEffect(() => {
+    setConfig({ onResolveContextItems: sampleContextItemResolver });
+  }, [setConfig]);
+
+  return <AppContent />;
 }
 
 export default App;

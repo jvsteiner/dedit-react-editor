@@ -74,6 +74,10 @@ export type {
   EditorHandle,
   DocumentEditorProps,
   UseDocumentEditorOptions,
+
+  // Context items types
+  ContextItem,
+  ContextItemResolver,
 } from "./types";
 
 // Re-export extensions for custom editor setups

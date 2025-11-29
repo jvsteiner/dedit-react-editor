@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Editor } from "@tiptap/react";
 import { diffWords } from "diff";
+import type { ContextItem, ContextItemResolver } from "../lib/types";
 
 // Types for AI edits - individual word-level changes
 export interface AIEdit {
@@ -48,6 +49,8 @@ export interface ChatMessage {
     selectionContext?: SelectionContext;
     // Edits associated with this message
     edits?: AIEdit[];
+    // Context items included with this message
+    contextItems?: ContextItem[];
   };
 }
 
@@ -66,6 +69,7 @@ export interface AIEditRequest {
     text: string;
     hasSelection: boolean;
   };
+  contextItems?: ContextItem[];
 }
 
 export interface AIEditResponse {
@@ -87,6 +91,9 @@ export interface AIEditorConfig {
   // Only used if onAIRequest is not provided (direct OpenAI mode)
   aiModel?: string;
   aiTemperature?: number;
+
+  // Context item resolver for drag/drop - converts DataTransfer to ContextItems
+  onResolveContextItems?: ContextItemResolver;
 }
 
 export interface AIEditorState {
@@ -138,6 +145,16 @@ export interface AIEditorState {
     trackChangeId: string,
     status: AIEdit["status"],
   ) => void;
+
+  // Context items for additional content in prompts
+  contextItems: ContextItem[];
+  addContextItem: (item: ContextItem) => void;
+  addContextItems: (items: ContextItem[]) => void;
+  removeContextItem: (id: string) => void;
+  clearContextItems: () => void;
+
+  // Resolve context items from a DataTransfer (drag/drop)
+  resolveContextItems: (dataTransfer: DataTransfer) => Promise<ContextItem[]>;
 }
 
 const AIEditorContext = createContext<AIEditorState | null>(null);
@@ -290,6 +307,7 @@ function buildSystemPrompt(
   indexedDocument: string,
   hasSelection: boolean,
   selectedText: string,
+  contextItems: ContextItem[] = [],
 ): string {
   let prompt = `You are an AI writing assistant helping to edit documents. You can answer questions about the document or suggest edits.
 
@@ -352,6 +370,23 @@ If the user asks to edit or change something without specifying where, apply cha
 ## No Selection
 The user has not selected any text. If they ask for edits, apply changes globally across all relevant paragraphs.
 `;
+  }
+
+  // Add context items if provided
+  if (contextItems.length > 0) {
+    prompt += `
+## Additional Context
+The user has provided the following additional context items. Use this information to inform your response:
+
+`;
+    for (const item of contextItems) {
+      prompt += `### ${item.label} (${item.type}${item.mimeType ? `, ${item.mimeType}` : ""})
+\`\`\`
+${item.content}
+\`\`\`
+
+`;
+    }
   }
 
   return prompt;
@@ -457,11 +492,59 @@ export function AIEditorProvider({
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    // Also clear context items when clearing chat history
+    setContextItems([]);
   }, []);
 
   // Loading and error states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Context items state
+  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
+
+  const addContextItem = useCallback((item: ContextItem) => {
+    setContextItems((prev) => {
+      // Avoid duplicates by ID
+      if (prev.some((i) => i.id === item.id)) {
+        return prev;
+      }
+      return [...prev, item];
+    });
+  }, []);
+
+  const addContextItems = useCallback((items: ContextItem[]) => {
+    setContextItems((prev) => {
+      const existingIds = new Set(prev.map((i) => i.id));
+      const newItems = items.filter((item) => !existingIds.has(item.id));
+      return [...prev, ...newItems];
+    });
+  }, []);
+
+  const removeContextItem = useCallback((id: string) => {
+    setContextItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const clearContextItems = useCallback(() => {
+    setContextItems([]);
+  }, []);
+
+  // Resolve context items from DataTransfer using config resolver
+  const resolveContextItems = useCallback(
+    async (dataTransfer: DataTransfer): Promise<ContextItem[]> => {
+      if (!config.onResolveContextItems) {
+        return [];
+      }
+      try {
+        const items = await config.onResolveContextItems(dataTransfer);
+        return items;
+      } catch (err) {
+        console.error("[resolveContextItems] Error:", err);
+        return [];
+      }
+    },
+    [config],
+  );
 
   // Scroll to an edit in the editor
   const scrollToEdit = useCallback((edit: AIEdit) => {
@@ -921,7 +1004,7 @@ export function AIEditorProvider({
         indexedDocument.substring(0, 500) + "...",
       );
 
-      // Add user message
+      // Add user message with context items
       addMessage({
         role: "user",
         content: prompt,
@@ -932,6 +1015,8 @@ export function AIEditorProvider({
             to,
             hasSelection,
           },
+          // Store context items in the message for chat history
+          contextItems: contextItems.length > 0 ? [...contextItems] : undefined,
         },
       });
 
@@ -954,6 +1039,7 @@ export function AIEditorProvider({
             selection: hasSelection
               ? { text: selectedText, hasSelection: true }
               : undefined,
+            contextItems: contextItems.length > 0 ? contextItems : undefined,
           };
 
           const response = await config.onAIRequest(request);
@@ -983,6 +1069,7 @@ export function AIEditorProvider({
             indexedDocument,
             hasSelection,
             selectedText,
+            contextItems,
           );
 
           // Define JSON schema for structured output
@@ -1125,7 +1212,7 @@ export function AIEditorProvider({
         setIsLoading(false);
       }
     },
-    [apiKey, addMessage, applyEditsAsTrackChanges, config],
+    [apiKey, addMessage, applyEditsAsTrackChanges, config, contextItems],
   );
 
   const value: AIEditorState = {
@@ -1151,6 +1238,12 @@ export function AIEditorProvider({
     getPendingEdits,
     getNextEdit,
     updateEditStatusByTrackChangeId,
+    contextItems,
+    addContextItem,
+    addContextItems,
+    removeContextItem,
+    clearContextItems,
+    resolveContextItems,
   };
 
   return (

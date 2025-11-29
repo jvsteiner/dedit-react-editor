@@ -16,6 +16,9 @@ interface PromptInputProps {
  * - If text is selected: AI will target that specific text
  * - If no selection: AI will apply changes globally or answer questions
  *
+ * Supports drag/drop of context items when a ContextItemResolver is configured
+ * via AIEditorProvider's config.onResolveContextItems.
+ *
  * Usage:
  * ```tsx
  * <AIEditorProvider>
@@ -33,9 +36,24 @@ export function PromptInput({
   placeholder,
   showSelectionIndicator = true,
 }: PromptInputProps) {
-  const { sendPrompt, isLoading, apiKey, selectionContext } = useAIEditor();
+  const {
+    sendPrompt,
+    isLoading,
+    apiKey,
+    selectionContext,
+    config,
+    contextItems,
+    addContextItems,
+    removeContextItem,
+    resolveContextItems,
+  } = useAIEditor();
   const [prompt, setPrompt] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  // Check if drag/drop is enabled (resolver is configured)
+  const isDragDropEnabled = !!config.onResolveContextItems;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -53,6 +71,8 @@ export function PromptInput({
 
       await sendPrompt(prompt.trim());
       setPrompt("");
+      // Don't clear context items - they persist in chat history
+      // and are cleared when the user clears the chat
     },
     [prompt, isLoading, apiKey, sendPrompt],
   );
@@ -65,6 +85,63 @@ export function PromptInput({
       }
     },
     [handleSubmit],
+  );
+
+  // Drag/drop handlers
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isDragDropEnabled) {
+        setIsDragOver(true);
+      }
+    },
+    [isDragDropEnabled],
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set to false if we're leaving the drop zone entirely
+    const rect = dropZoneRef.current?.getBoundingClientRect();
+    if (rect) {
+      const { clientX, clientY } = e;
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) {
+        setIsDragOver(false);
+      }
+    }
+  }, []);
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isDragDropEnabled) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    },
+    [isDragDropEnabled],
+  );
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      if (!isDragDropEnabled) return;
+
+      const items = await resolveContextItems(e.dataTransfer);
+      if (items.length > 0) {
+        addContextItems(items);
+      }
+    },
+    [isDragDropEnabled, resolveContextItems, addContextItems],
   );
 
   const getPlaceholder = (): string => {
@@ -84,7 +161,14 @@ export function PromptInput({
   };
 
   return (
-    <div className={`prompt-input ${className}`}>
+    <div
+      ref={dropZoneRef}
+      className={`prompt-input ${className} ${isDragOver ? "drag-over" : ""}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {showSelectionIndicator && (
         <div className="prompt-selection-indicator">
           {selectionContext.hasSelection ? (
@@ -119,6 +203,55 @@ export function PromptInput({
               No selection — edits will apply globally
             </span>
           )}
+        </div>
+      )}
+
+      {/* Context items pills */}
+      {contextItems.length > 0 && (
+        <div className="prompt-context-items">
+          {contextItems.map((item) => (
+            <div key={item.id} className="context-item-pill" title={item.label}>
+              <span className="context-item-type">{item.type}</span>
+              <span className="context-item-label">{item.label}</span>
+              <button
+                type="button"
+                className="context-item-remove"
+                onClick={() => removeContextItem(item.id)}
+                title="Remove"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Drag overlay */}
+      {isDragOver && isDragDropEnabled && (
+        <div className="prompt-drop-overlay">
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          <span>Drop to add context</span>
         </div>
       )}
 
@@ -176,6 +309,7 @@ export function PromptInput({
         </div>
         <div className="prompt-hint">
           Press Enter to send, Shift+Enter for new line
+          {isDragDropEnabled && " • Drop files to add context"}
         </div>
       </form>
     </div>
