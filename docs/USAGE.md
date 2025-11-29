@@ -1099,14 +1099,102 @@ The library exports its custom extensions:
 
 ```typescript
 import {
-  Insertion,        // Track changes insertion mark
-  Deletion,         // Track changes deletion mark
-  Comment,          // Comment mark
-  TrackChangesMode, // Track changes behavior extension
-  Section,          // Section node for document structure
-  TableWithId,      // Table node with ID support
+  Insertion,           // Track changes insertion mark
+  Deletion,            // Track changes deletion mark
+  Comment,             // Comment mark
+  TrackChangesMode,    // Track changes behavior extension
+  Section,             // Section node for document structure
+  TableWithId,         // Table node with ID support
+  ParagraphWithId,     // Paragraph node with UUID support (required for AI editing)
+  PersistentSelection, // Shows selection highlight when editor loses focus
 } from 'dedit-react-editor';
 ```
+
+#### ParagraphWithId
+
+A custom paragraph node that automatically assigns a unique UUID to each paragraph. This is **required for AI editing** because it allows the AI to reference specific paragraphs when making edits.
+
+```typescript
+import { useEditor } from '@tiptap/react';
+import { ParagraphWithId } from 'dedit-react-editor';
+
+const editor = useEditor({
+  extensions: [
+    // Use ParagraphWithId instead of the default Paragraph
+    ParagraphWithId,
+    // ... other extensions
+  ],
+});
+```
+
+The paragraph IDs are stored in the document JSON:
+
+```json
+{
+  "type": "paragraph",
+  "attrs": {
+    "id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "content": [{ "type": "text", "text": "Hello world" }]
+}
+```
+
+#### PersistentSelection
+
+An extension that preserves the visual appearance of selected text when the editor loses focus. This is useful for AI editing workflows where users select text, then click on a prompt input to describe what to do with that selection.
+
+```typescript
+import { useEditor } from '@tiptap/react';
+import { useEffect } from 'react';
+import { PersistentSelection } from 'dedit-react-editor';
+
+const editor = useEditor({
+  extensions: [
+    PersistentSelection,
+    // ... other extensions
+  ],
+});
+
+// Set up focus/blur handlers to save/restore selection
+useEffect(() => {
+  if (!editor) return;
+
+  const handleFocus = () => {
+    // Clear the persistent selection highlight when editor regains focus
+    editor.storage.persistentSelection.savedSelection = null;
+    editor.view.dispatch(editor.state.tr);
+  };
+
+  const handleBlur = () => {
+    const { from, to } = editor.state.selection;
+    if (from !== to) {
+      // Save selection when editor loses focus
+      editor.storage.persistentSelection.savedSelection = { from, to };
+      editor.view.dispatch(editor.state.tr);
+    }
+  };
+
+  editor.on("focus", handleFocus);
+  editor.on("blur", handleBlur);
+
+  return () => {
+    editor.off("focus", handleFocus);
+    editor.off("blur", handleBlur);
+  };
+}, [editor]);
+```
+
+CSS required for the persistent selection highlight:
+
+```css
+.tiptap .persistent-selection {
+  background-color: #dfdfdf;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+```
+
+**Note:** The default styles (`dedit-react-editor/styles.css`) already include this CSS.
 
 ---
 

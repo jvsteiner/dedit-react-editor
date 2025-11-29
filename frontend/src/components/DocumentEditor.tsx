@@ -1,9 +1,6 @@
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { useEffect, useMemo, useCallback, useRef, useState } from "react";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import Document from "@tiptap/extension-document";
-import { Extension } from "@tiptap/core";
 import { useAIEditorOptional } from "../context/AIEditorContext";
 import { ParagraphWithId } from "../extensions/ParagraphWithId";
 import Text from "@tiptap/extension-text";
@@ -22,61 +19,8 @@ import { Deletion } from "../extensions/Deletion";
 import { Comment } from "../extensions/Comment";
 import { TrackChangesMode } from "../extensions/TrackChangesMode";
 import { SearchAndReplace } from "../extensions/SearchAndReplace";
+import { PersistentSelection } from "../extensions/PersistentSelection";
 import { FindReplaceBar } from "./FindReplaceBar";
-
-// Plugin key for persistent selection
-const persistentSelectionKey = new PluginKey("persistentSelection");
-
-// Extension to show selection highlight when editor loses focus
-const PersistentSelection = Extension.create({
-  name: "persistentSelection",
-
-  addStorage() {
-    return {
-      savedSelection: null as { from: number; to: number } | null,
-    };
-  },
-
-  addProseMirrorPlugins() {
-    const extension = this;
-    return [
-      new Plugin({
-        key: persistentSelectionKey,
-        props: {
-          decorations(state) {
-            const saved = extension.storage.savedSelection;
-            if (!saved) return DecorationSet.empty;
-
-            const { from, to } = saved;
-            // Validate the range is still valid in current doc
-            if (from < 0 || to > state.doc.content.size || from >= to) {
-              return DecorationSet.empty;
-            }
-
-            // Create decorations for each text node in the selection
-            // This avoids gaps between block elements
-            const decorations: Decoration[] = [];
-            state.doc.nodesBetween(from, to, (node, pos) => {
-              if (node.isText) {
-                const start = Math.max(from, pos);
-                const end = Math.min(to, pos + node.nodeSize);
-                if (start < end) {
-                  decorations.push(
-                    Decoration.inline(start, end, {
-                      class: "persistent-selection",
-                    }),
-                  );
-                }
-              }
-            });
-
-            return DecorationSet.create(state.doc, decorations);
-          },
-        },
-      }),
-    ];
-  },
-});
 
 type ToolbarItem =
   | "bold"
