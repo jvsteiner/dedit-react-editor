@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { DocumentEditor, type EditorHandle, type TipTapDocument } from "./lib";
 import FileUpload from "./components/FileUpload";
 import {
@@ -60,30 +60,13 @@ function AppContent() {
     [],
   );
 
-  // Register editor with AI context when it becomes available
-  // Using an interval to check because the editor ref is populated after render
-  useEffect(() => {
-    const checkEditor = () => {
-      const editor = editorRef.current?.getEditor();
-      if (editor) {
-        setEditor(editor);
-        return true;
-      }
-      return false;
-    };
-
-    // Check immediately
-    if (checkEditor()) return;
-
-    // If not available yet, poll briefly
-    const interval = setInterval(() => {
-      if (checkEditor()) {
-        clearInterval(interval);
-      }
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [setEditor]);
+  // Register editor with AI context via callback
+  const handleEditorReady = useCallback(
+    (editor: import("@tiptap/react").Editor) => {
+      setEditor(editor);
+    },
+    [setEditor],
+  );
 
   const handleUpload = async (file: File) => {
     setIsLoading(true);
@@ -327,6 +310,7 @@ function AppContent() {
                 ref={editorRef}
                 content={document?.tiptap || undefined}
                 onChange={handleEditorChange}
+                onEditorReady={handleEditorReady}
                 toolbar={[
                   "undo",
                   "redo",

@@ -86,6 +86,7 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
       extensionConfig,
       toolbar,
       enableContextMenu = false,
+      onEditorReady,
     } = props;
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
@@ -134,16 +135,16 @@ export const DocumentEditor = forwardRef<EditorHandle, DocumentEditorProps>(
       onDelete: comments?.onDelete,
     });
 
-    // Sync controlled content
+    // Note: Controlled content changes are handled by useDocumentEditor's
+    // dependency on initialContent, which recreates the editor when content changes.
+    // This triggers onCreate in ParagraphWithId to assign IDs to paragraphs.
+
+    // Notify when editor instance is ready or changes
     useEffect(() => {
-      if (isControlled && editor && controlledContent) {
-        const currentContent = JSON.stringify(editor.getJSON());
-        const newContent = JSON.stringify(controlledContent);
-        if (currentContent !== newContent) {
-          setContent(controlledContent);
-        }
+      if (editor && onEditorReady) {
+        onEditorReady(editor);
       }
-    }, [isControlled, editor, controlledContent, setContent]);
+    }, [editor, onEditorReady]);
 
     // Sync track changes props
     useEffect(() => {

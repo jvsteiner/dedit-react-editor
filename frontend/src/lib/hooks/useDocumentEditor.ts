@@ -13,6 +13,7 @@ import History from "@tiptap/extension-history";
 import Section from "../../extensions/Section";
 import TableWithId from "../../extensions/TableWithId";
 import { ParagraphWithId } from "../../extensions/ParagraphWithId";
+import { PersistentSelection } from "../../extensions/PersistentSelection";
 import { Insertion } from "../../extensions/Insertion";
 import { Deletion } from "../../extensions/Deletion";
 import { Comment } from "../../extensions/Comment";
@@ -94,6 +95,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
       SearchAndReplace.configure({
         searchResultClass: "search-result",
       }),
+      PersistentSelection,
       ...additionalExtensions,
     ];
   }, [

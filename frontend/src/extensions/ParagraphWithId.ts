@@ -124,27 +124,97 @@ export const ParagraphWithId = Paragraph.extend<ParagraphWithIdOptions>({
     return baseAttributes;
   },
 
+  addStorage() {
+    return {
+      // Flag to prevent recursive updates
+      isAssigningIds: false,
+    };
+  },
+
   // Hook to ensure all paragraphs get IDs when document is loaded
   onCreate() {
+    console.log("[ParagraphWithId] onCreate called");
+    this.storage.isAssigningIds = true;
     const { tr } = this.editor.state;
     let modified = false;
+    let count = 0;
 
     this.editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "paragraph" && !node.attrs.id) {
+        tr.setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          id: uuidv4(),
+        });
+        modified = true;
+        count++;
+      }
+    });
+
+    console.log(
+      `[ParagraphWithId] onCreate assigned ${count} IDs, modified=${modified}`,
+    );
+    if (modified) {
+      this.editor.view.dispatch(tr);
+    }
+    this.storage.isAssigningIds = false;
+  },
+
+  // Hook to assign IDs when content is set after editor creation (e.g., setContent)
+  onUpdate() {
+    // Prevent recursive/concurrent calls
+    if (this.storage.isAssigningIds) {
+      return;
+    }
+
+    // Check if any paragraphs are missing IDs
+    let hasMissingIds = false;
+    let totalParagraphs = 0;
+    this.editor.state.doc.descendants((node) => {
       if (node.type.name === "paragraph") {
+        totalParagraphs++;
         if (!node.attrs.id) {
-          const newId = uuidv4();
-          tr.setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            id: newId,
-          });
-          modified = true;
+          hasMissingIds = true;
         }
       }
     });
 
-    if (modified) {
-      this.editor.view.dispatch(tr);
+    console.log(
+      `[ParagraphWithId] onUpdate: ${totalParagraphs} paragraphs, hasMissingIds=${hasMissingIds}`,
+    );
+
+    if (!hasMissingIds) {
+      return;
     }
+
+    // Defer to next tick to avoid dispatching during a dispatch
+    this.storage.isAssigningIds = true;
+    const editor = this.editor;
+    const storage = this.storage;
+
+    setTimeout(() => {
+      const { tr } = editor.state;
+      let modified = false;
+      let count = 0;
+
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "paragraph" && !node.attrs.id) {
+          tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            id: uuidv4(),
+          });
+          modified = true;
+          count++;
+        }
+      });
+
+      console.log(
+        `[ParagraphWithId] onUpdate setTimeout assigned ${count} IDs`,
+      );
+      if (modified) {
+        editor.view.dispatch(tr);
+      }
+      storage.isAssigningIds = false;
+    }, 0);
   },
 });
 

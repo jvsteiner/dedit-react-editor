@@ -246,6 +246,8 @@ export interface DocumentEditorProps {
   extensionConfig?: ExtensionConfig;
   /** Toolbar items to display (e.g., ["bold", "italic"]) */
   toolbar?: ToolbarItem[];
+  /** Called when editor instance is ready or changes */
+  onEditorReady?: (editor: Editor) => void;
   /** Enable right-click context menu for track changes (default: false) */
   enableContextMenu?: boolean;
 }
