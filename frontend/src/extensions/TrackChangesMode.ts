@@ -289,6 +289,15 @@ export const TrackChangesMode = Extension.create<
 
               const mappedFrom = tr.mapping.map(change.from);
               const mappedTo = tr.mapping.map(change.to);
+
+              // First, remove any deletion mark from this range
+              // This handles the case where user types inside deleted text
+              const deletionMarkType = newState.schema.marks.deletion;
+              if (deletionMarkType) {
+                tr = tr.removeMark(mappedFrom, mappedTo, deletionMarkType);
+              }
+
+              // Then add the insertion mark
               tr = tr.addMark(mappedFrom, mappedTo, insertionMark);
             }
           }
