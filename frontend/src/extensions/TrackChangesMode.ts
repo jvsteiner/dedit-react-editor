@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { ReplaceStep } from "@tiptap/pm/transform";
 
 export interface TrackChangesModeOptions {
@@ -155,13 +155,14 @@ export const TrackChangesMode = Extension.create<
 
                 // Map positions back through previous steps to get oldState positions
                 // for reading deleted content
+                // Use assoc=-1 for 'from' and assoc=1 for 'to' to handle boundary cases correctly
                 let oldFrom = from;
                 let oldTo = to;
                 for (let i = 0; i < stepIndex; i++) {
                   const prevStep = transaction.steps[i];
                   const map = prevStep.getMap();
-                  oldFrom = map.invert().map(oldFrom);
-                  oldTo = map.invert().map(oldTo);
+                  oldFrom = map.invert().map(oldFrom, -1);
+                  oldTo = map.invert().map(oldTo, 1);
                 }
 
                 // Get the content that was deleted (from old state)
@@ -191,10 +192,8 @@ export const TrackChangesMode = Extension.create<
                   }
                 });
 
-                // Map positions forward through steps AFTER the current one
+                // Map 'from' position forward through steps AFTER the current one
                 // to get the position in newState.
-                // The step's `from` is relative to the doc state after previous steps,
-                // so we only need to map through steps that come after this one.
                 let mappedFrom = from;
                 for (let i = stepIndex + 1; i < transaction.steps.length; i++) {
                   const laterStep = transaction.steps[i];
@@ -203,6 +202,9 @@ export const TrackChangesMode = Extension.create<
                 }
 
                 if (deletedContent && deletedContent.length > 0) {
+                  // For deletions, insert the deleted text at the position where deletion started
+                  // This is 'from' mapped through subsequent steps (not including current step,
+                  // since the deletion step doesn't change the 'from' position)
                   pendingChanges.push({
                     type: "deletion",
                     from: mappedFrom,
@@ -257,6 +259,10 @@ export const TrackChangesMode = Extension.create<
 
           let tr = newState.tr;
 
+          // Track the cursor position - we need to restore it after inserting deleted text
+          const originalSelection = newState.selection;
+          let cursorPos = originalSelection.from;
+
           for (const change of pendingChanges) {
             if (change.type === "deletion") {
               const deletionMark = newState.schema.marks.deletion.create({
@@ -271,6 +277,9 @@ export const TrackChangesMode = Extension.create<
 
               const mappedPos = tr.mapping.map(change.from);
               tr = tr.insert(mappedPos, textNode);
+
+              // Don't let cursor move - it should stay to the LEFT of inserted deleted text
+              // The insert pushes everything right, so we need to keep cursor at mappedPos
             } else {
               const insertionMark = newState.schema.marks.insertion.create({
                 id: generateChangeId("ins"),
@@ -283,6 +292,12 @@ export const TrackChangesMode = Extension.create<
               tr = tr.addMark(mappedFrom, mappedTo, insertionMark);
             }
           }
+
+          // Restore cursor to where it was before we inserted deleted text
+          // Use assoc=-1 to keep cursor to the left of any inserted content
+          const mappedCursor = tr.mapping.map(cursorPos, -1);
+          const $pos = tr.doc.resolve(mappedCursor);
+          tr = tr.setSelection(TextSelection.create(tr.doc, $pos.pos));
 
           tr.setMeta("trackChangesProcessed", true);
           return tr;
