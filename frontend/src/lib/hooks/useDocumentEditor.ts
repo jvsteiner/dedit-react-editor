@@ -57,6 +57,14 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
     trackChangesAuthor = "Unknown Author",
   } = options;
 
+  // Check if collaboration extensions are included (they manage their own history)
+  const hasCollaboration = useMemo(() => {
+    return additionalExtensions.some(
+      (ext) =>
+        ext.name === "collaboration" || ext.name === "collaborationCursor",
+    );
+  }, [additionalExtensions]);
+
   // Build extensions list
   const extensions = useMemo(() => {
     if (replaceExtensions) {
@@ -66,7 +74,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
     const headingLevels = extensionConfig.heading?.levels || [1, 2, 3, 4, 5, 6];
     const tableResizable = extensionConfig.table?.resizable ?? false;
 
-    return [
+    const baseExtensions = [
       Document,
       ParagraphWithId,
       Text,
@@ -85,10 +93,6 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
       Insertion,
       Deletion,
       Comment,
-      // History must come before TrackChangesMode so undo/redo works correctly
-      History.configure({
-        depth: 100,
-      }),
       TrackChangesMode.configure({
         enabled: trackChangesEnabled,
         author: trackChangesAuthor,
@@ -97,20 +101,32 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
         searchResultClass: "search-result",
       }),
       PersistentSelection,
-      ...additionalExtensions,
     ];
+
+    // Only include History if not using collaboration (Yjs has its own undo manager)
+    if (!hasCollaboration) {
+      baseExtensions.push(
+        History.configure({
+          depth: 100,
+        }),
+      );
+    }
+
+    return [...baseExtensions, ...additionalExtensions];
   }, [
     replaceExtensions,
     additionalExtensions,
     extensionConfig,
     trackChangesEnabled,
     trackChangesAuthor,
+    hasCollaboration,
   ]);
 
   const editor = useEditor(
     {
       extensions,
-      content: initialContent || DEFAULT_CONTENT,
+      // Don't set content when using collaboration - Yjs manages the document
+      content: hasCollaboration ? undefined : initialContent || DEFAULT_CONTENT,
       editable: !readOnly,
       onUpdate: ({ editor }) => {
         if (onChange) {
@@ -118,7 +134,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions = {}) {
         }
       },
     },
-    [initialContent],
+    [initialContent, hasCollaboration],
   );
 
   const isReady = editor !== null;

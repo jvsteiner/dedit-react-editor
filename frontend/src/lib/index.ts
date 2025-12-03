@@ -2,7 +2,13 @@
 export { DocumentEditor } from "./DocumentEditor";
 
 // Hooks
-export { useDocumentEditor, useTrackChanges, useComments } from "./hooks";
+export {
+  useDocumentEditor,
+  useTrackChanges,
+  useComments,
+  useCollaboration,
+  generateUserColor,
+} from "./hooks";
 
 export type {
   UseDocumentEditorReturn,
@@ -10,6 +16,9 @@ export type {
   UseTrackChangesReturn,
   UseCommentsOptions,
   UseCommentsReturn,
+  UseCollaborationOptions,
+  UseCollaborationReturn,
+  CollaborationUser,
 } from "./hooks";
 
 // Utilities

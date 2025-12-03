@@ -1,10 +1,13 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   DocumentEditor,
   type EditorHandle,
   type TipTapDocument,
   type ContextItem,
   type ContextItemResolver,
+  useCollaboration,
+  generateUserColor,
+  type CollaborationUser,
 } from "./lib";
 import FileUpload from "./components/FileUpload";
 import {
@@ -92,6 +95,173 @@ interface TemplateData {
 
 type TemplateOption = "none" | "original" | "custom";
 
+// Collaboration configuration
+const COLLAB_SERVER_URL = "ws://localhost:1234";
+const COLLAB_DOCUMENT_NAME = "sample-document";
+
+/**
+ * Collaborative editor wrapper that uses the useCollaboration hook.
+ * This is a separate component because hooks must be called unconditionally.
+ */
+interface CollaborativeEditorProps {
+  editorRef: React.RefObject<EditorHandle>;
+  user: CollaborationUser;
+  onEditorReady: (editor: import("@tiptap/react").Editor) => void;
+  onChange: (content: TipTapDocument | Record<string, unknown>) => void;
+  trackChangesEnabled: boolean;
+  onTrackChangesEnabledChange: (enabled: boolean) => void;
+  showJson: boolean;
+  editorJson: Record<string, unknown> | null;
+  /** Initial content to seed the collaborative document with (if empty) */
+  initialContent?: Record<string, unknown>;
+  /** Document name for collaboration room */
+  documentName?: string;
+}
+
+function CollaborativeEditor({
+  editorRef,
+  user,
+  onEditorReady,
+  onChange,
+  trackChangesEnabled,
+  onTrackChangesEnabledChange,
+  showJson,
+  editorJson,
+  initialContent,
+  documentName = COLLAB_DOCUMENT_NAME,
+}: CollaborativeEditorProps) {
+  const {
+    extensions,
+    status,
+    connectedUsers,
+    isReady,
+    needsSeeding,
+    markSeeded,
+  } = useCollaboration({
+    serverUrl: COLLAB_SERVER_URL,
+    documentName,
+    user,
+    initialContent,
+  });
+
+  // Handle seeding the document when editor is ready
+  const handleEditorReady = useCallback(
+    (editor: import("@tiptap/react").Editor) => {
+      console.log("[CollaborativeEditor] Editor ready", {
+        needsSeeding,
+        hasInitialContent: !!initialContent,
+        status,
+      });
+      if (needsSeeding && initialContent) {
+        console.log(
+          "[CollaborativeEditor] Seeding document with initial content",
+        );
+        editor.commands.setContent(initialContent);
+        markSeeded();
+      } else if (initialContent && !needsSeeding) {
+        console.log(
+          "[CollaborativeEditor] Document already has content, not seeding",
+        );
+      }
+      onEditorReady(editor);
+    },
+    [needsSeeding, initialContent, markSeeded, onEditorReady, status],
+  );
+
+  return (
+    <>
+      <div
+        style={{
+          padding: "0.5rem",
+          background: status === "connected" ? "#e8f5e9" : "#fff3e0",
+          borderBottom: "1px solid #eee",
+          fontSize: "0.75rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "1rem",
+        }}
+      >
+        <span>
+          Status:{" "}
+          <strong
+            style={{ color: status === "connected" ? "green" : "orange" }}
+          >
+            {status}
+          </strong>
+        </span>
+        <span>Document: {documentName}</span>
+        <span>
+          Users: {connectedUsers.map((u) => u.name).join(", ") || "Just you"}
+        </span>
+      </div>
+      {!isReady ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100%",
+            color: "#666",
+          }}
+        >
+          Connecting to collaboration server...
+        </div>
+      ) : (
+        <DocumentEditor
+          ref={editorRef}
+          onChange={onChange}
+          onEditorReady={handleEditorReady}
+          extensions={extensions}
+          toolbar={[
+            "undo",
+            "redo",
+            "separator",
+            "bold",
+            "italic",
+            "separator",
+            "findReplace",
+            "separator",
+            "addRowBefore",
+            "addRowAfter",
+            "deleteRow",
+            "separator",
+            "trackChangesToggle",
+            "separator",
+            "prevChange",
+            "nextChange",
+            "acceptChange",
+            "rejectChange",
+            "separator",
+            "acceptAll",
+            "rejectAll",
+          ]}
+          trackChanges={{
+            enabled: trackChangesEnabled,
+            author: user.name,
+            onEnabledChange: onTrackChangesEnabledChange,
+          }}
+          enableContextMenu
+        />
+      )}
+      {showJson && (
+        <div className="json-content" style={{ borderTop: "1px solid #eee" }}>
+          <pre
+            style={{
+              fontSize: "0.7rem",
+              maxHeight: "200px",
+              overflow: "auto",
+            }}
+          >
+            {editorJson
+              ? JSON.stringify(editorJson, null, 2)
+              : JSON.stringify({ type: "doc", content: [] }, null, 2)}
+          </pre>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Inner component that uses the AI context
 function AppContent() {
   const { setEditor } = useAIEditor();
@@ -112,6 +282,22 @@ function AppContent() {
   );
   const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
   const [showJson, setShowJson] = useState(false);
+
+  // Collaboration state
+  const [collabEnabled, setCollabEnabled] = useState(false);
+  const [collabRoomId, setCollabRoomId] = useState<string>("");
+  const [userName, setUserName] = useState(
+    () => `User-${Math.random().toString(36).slice(2, 6)}`,
+  );
+  const userColor = useMemo(() => generateUserColor(), []);
+
+  // The effective room ID: manual input takes precedence, then document ID, then default
+  const effectiveRoomId = collabRoomId || document?.id || COLLAB_DOCUMENT_NAME;
+
+  const collabUser: CollaborationUser = useMemo(
+    () => ({ name: userName, color: userColor }),
+    [userName, userColor],
+  );
 
   const handleEditorChange = useCallback(
     (content: TipTapDocument | Record<string, unknown>) => {
@@ -339,16 +525,103 @@ function AppContent() {
 
       {/* AI Editor Layout - Components in separate areas */}
       <div className="ai-editor-layout ai-editor-layout--two-column">
-        {/* Settings Area - API Key */}
+        {/* Settings Area - API Key and Collaboration */}
         <div className="ai-settings-area">
           <APIKeyInput showLabel />
+          <div
+            style={{
+              marginTop: "1rem",
+              padding: "0.5rem",
+              background: "#f5f5f5",
+              borderRadius: "4px",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={collabEnabled}
+                onChange={(e) => setCollabEnabled(e.target.checked)}
+              />
+              <span style={{ fontWeight: 500 }}>Enable Collaboration</span>
+            </label>
+            {collabEnabled && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <label style={{ fontSize: "0.75rem", color: "#666" }}>
+                  Your name:
+                  <input
+                    type="text"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    style={{
+                      marginLeft: "0.5rem",
+                      padding: "0.25rem",
+                      border: "1px solid #ccc",
+                      borderRadius: "3px",
+                      fontSize: "0.75rem",
+                    }}
+                  />
+                </label>
+                <div style={{ marginTop: "0.5rem" }}>
+                  <label
+                    style={{
+                      fontSize: "0.75rem",
+                      color: "#666",
+                      display: "block",
+                    }}
+                  >
+                    Room ID (to join existing):
+                  </label>
+                  <input
+                    type="text"
+                    value={collabRoomId}
+                    onChange={(e) => setCollabRoomId(e.target.value)}
+                    placeholder={document?.id || COLLAB_DOCUMENT_NAME}
+                    style={{
+                      marginTop: "0.25rem",
+                      padding: "0.25rem",
+                      border: "1px solid #ccc",
+                      borderRadius: "3px",
+                      fontSize: "0.75rem",
+                      width: "100%",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <div
+                    style={{
+                      marginTop: "0.25rem",
+                      fontSize: "0.65rem",
+                      color: "#888",
+                    }}
+                  >
+                    Current: {effectiveRoomId}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    marginTop: "0.25rem",
+                    fontSize: "0.7rem",
+                    color: "#888",
+                  }}
+                >
+                  Server: {COLLAB_SERVER_URL}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Editor Area */}
         <div className="ai-editor-area">
           <div className="editor-panel">
             <div className="panel-header">
-              <span>Editor</span>
+              <span>Editor {collabEnabled && "(Collaborative)"}</span>
               <button
                 type="button"
                 onClick={() => setShowJson(!showJson)}
@@ -374,60 +647,81 @@ function AppContent() {
                 overflow: "hidden",
               }}
             >
-              <DocumentEditor
-                ref={editorRef}
-                content={document?.tiptap || undefined}
-                onChange={handleEditorChange}
-                onEditorReady={handleEditorReady}
-                toolbar={[
-                  "undo",
-                  "redo",
-                  "separator",
-                  "bold",
-                  "italic",
-                  "separator",
-                  "findReplace",
-                  "separator",
-                  "addRowBefore",
-                  "addRowAfter",
-                  "deleteRow",
-                  "separator",
-                  "trackChangesToggle",
-                  "separator",
-                  "prevChange",
-                  "nextChange",
-                  "acceptChange",
-                  "rejectChange",
-                  "separator",
-                  "acceptAll",
-                  "rejectAll",
-                ]}
-                trackChanges={{
-                  enabled: trackChangesEnabled,
-                  author: "Current User",
-                  onEnabledChange: setTrackChangesEnabled,
-                }}
-                enableContextMenu
-              />
+              {collabEnabled ? (
+                <CollaborativeEditor
+                  editorRef={editorRef}
+                  user={collabUser}
+                  onEditorReady={handleEditorReady}
+                  onChange={handleEditorChange}
+                  trackChangesEnabled={trackChangesEnabled}
+                  onTrackChangesEnabledChange={setTrackChangesEnabled}
+                  showJson={showJson}
+                  editorJson={editorJson}
+                  initialContent={document?.tiptap}
+                  documentName={effectiveRoomId}
+                />
+              ) : (
+                <>
+                  <DocumentEditor
+                    ref={editorRef}
+                    content={document?.tiptap || undefined}
+                    onChange={handleEditorChange}
+                    onEditorReady={handleEditorReady}
+                    toolbar={[
+                      "undo",
+                      "redo",
+                      "separator",
+                      "bold",
+                      "italic",
+                      "separator",
+                      "findReplace",
+                      "separator",
+                      "addRowBefore",
+                      "addRowAfter",
+                      "deleteRow",
+                      "separator",
+                      "trackChangesToggle",
+                      "separator",
+                      "prevChange",
+                      "nextChange",
+                      "acceptChange",
+                      "rejectChange",
+                      "separator",
+                      "acceptAll",
+                      "rejectAll",
+                    ]}
+                    trackChanges={{
+                      enabled: trackChangesEnabled,
+                      author: "Current User",
+                      onEnabledChange: setTrackChangesEnabled,
+                    }}
+                    enableContextMenu
+                  />
+                  {showJson && (
+                    <div
+                      className="json-content"
+                      style={{ borderTop: "1px solid #eee" }}
+                    >
+                      <pre
+                        style={{
+                          fontSize: "0.7rem",
+                          maxHeight: "200px",
+                          overflow: "auto",
+                        }}
+                      >
+                        {editorJson
+                          ? JSON.stringify(editorJson, null, 2)
+                          : JSON.stringify(
+                              { type: "doc", content: [] },
+                              null,
+                              2,
+                            )}
+                      </pre>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            {showJson && (
-              <div
-                className="json-content"
-                style={{ borderTop: "1px solid #eee" }}
-              >
-                <pre
-                  style={{
-                    fontSize: "0.7rem",
-                    maxHeight: "200px",
-                    overflow: "auto",
-                  }}
-                >
-                  {editorJson
-                    ? JSON.stringify(editorJson, null, 2)
-                    : JSON.stringify({ type: "doc", content: [] }, null, 2)}
-                </pre>
-              </div>
-            )}
           </div>
         </div>
 
