@@ -721,8 +721,6 @@ body {
     text-decoration-color: var(--author-color, #28a745);
     text-decoration-thickness: 2px;
     text-underline-offset: 2px;
-    position: relative;
-    cursor: default;
 }
 
 .tiptap .deletion {
@@ -730,18 +728,11 @@ body {
     text-decoration: line-through;
     text-decoration-color: var(--author-color, #dc3545);
     text-decoration-thickness: 2px;
-    position: relative;
-    cursor: default;
 }
 
-/* Author tooltip on hover for track changes */
-.tiptap .insertion[data-author]::after,
-.tiptap .deletion[data-author]::after {
-    content: attr(data-author);
-    position: absolute;
-    left: 0;
-    bottom: 100%;
-    margin-bottom: 4px;
+/* Track changes author tooltip (rendered via JS) */
+.track-change-tooltip {
+    position: fixed;
     background: #333;
     color: white;
     padding: 4px 8px;
@@ -749,18 +740,9 @@ body {
     font-size: 12px;
     line-height: 1.3;
     white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s;
     z-index: 99999;
     pointer-events: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-}
-
-.tiptap .insertion[data-author]:hover::after,
-.tiptap .deletion[data-author]:hover::after {
-    opacity: 1;
-    visibility: visible;
 }
 
 /* Selected change highlighting - outline only, no background */
