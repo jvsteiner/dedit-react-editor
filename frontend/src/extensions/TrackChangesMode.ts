@@ -148,14 +148,17 @@ export const TrackChangesMode = Extension.create<
           }
 
           interface PendingChange {
-            type: "deletion" | "insertion";
+            type: "deletion" | "insertion" | "restore-deleted";
             // For deletions: position in newState where to insert the deleted text
             // For insertions: position range in newState to mark
+            // For restore-deleted: position where to re-insert already-deleted text
             from: number;
             to: number;
             text: string;
             // For deletions: the original text fragments with their marks
             deletedFragments?: DeletedFragment[];
+            // For restore-deleted: the original marks to preserve (including deletion mark)
+            originalMarks?: readonly import("@tiptap/pm/model").Mark[];
           }
 
           const pendingChanges: PendingChange[] = [];
@@ -186,6 +189,8 @@ export const TrackChangesMode = Extension.create<
 
                 // Get the content that was deleted (from old state), preserving marks
                 const deletedFragments: DeletedFragment[] = [];
+                // Track already-deleted text that needs to be restored
+                const alreadyDeletedFragments: DeletedFragment[] = [];
                 try {
                   // Collect text nodes with their marks, including paragraph breaks
                   let isFirstBlock = true;
@@ -219,7 +224,21 @@ export const TrackChangesMode = Extension.create<
                           const hasInsertionMark = node.marks.some(
                             (m) => m.type.name === "insertion",
                           );
-                          if (!hasInsertionMark) {
+                          // Check if this text already has a deletion mark
+                          // If so, we need to restore it (put it back) with all its marks
+                          const hasDeletionMark = node.marks.some(
+                            (m) => m.type.name === "deletion",
+                          );
+                          if (hasInsertionMark) {
+                            // Skip - deleting inserted text just removes it
+                          } else if (hasDeletionMark) {
+                            // Already deleted - collect to restore with original marks
+                            alreadyDeletedFragments.push({
+                              text,
+                              marks: node.marks,
+                            });
+                          } else {
+                            // Regular text - collect for deletion marking
                             deletedFragments.push({
                               text,
                               marks: node.marks,
@@ -272,6 +291,19 @@ export const TrackChangesMode = Extension.create<
                       to: mappedFrom,
                       text: nonInsertedText,
                       deletedFragments: deletedFragments,
+                    });
+                  }
+                }
+
+                // Handle already-deleted text - restore it (put it back with original marks)
+                if (alreadyDeletedFragments.length > 0) {
+                  for (const fragment of alreadyDeletedFragments) {
+                    pendingChanges.push({
+                      type: "restore-deleted",
+                      from: mappedFrom,
+                      to: mappedFrom,
+                      text: fragment.text,
+                      originalMarks: fragment.marks,
                     });
                   }
                 }
@@ -360,6 +392,15 @@ export const TrackChangesMode = Extension.create<
 
               // Don't let cursor move - it should stay to the LEFT of inserted deleted text
               // The insert pushes everything right, so we need to keep cursor at mappedPos
+            } else if (change.type === "restore-deleted") {
+              // Re-insert already-deleted text with its original marks (including deletion mark)
+              const mappedPos = tr.mapping.map(change.from);
+              const marks = change.originalMarks
+                ? [...change.originalMarks]
+                : [];
+              const textNode = newState.schema.text(change.text, marks);
+              tr = tr.insert(mappedPos, textNode);
+              // Cursor will be positioned left of this via the mapping with assoc=-1 below
             } else {
               const insertionMark = newState.schema.marks.insertion.create({
                 id: generateChangeId("ins"),
