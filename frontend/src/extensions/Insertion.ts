@@ -1,4 +1,5 @@
 import { Mark, mergeAttributes } from "@tiptap/core";
+import { getAuthorColor } from "../lib/utils/authorColors";
 
 export interface InsertionOptions {
   HTMLAttributes: Record<string, unknown>;
@@ -69,10 +70,14 @@ export const Insertion = Mark.create<InsertionOptions>({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const author = HTMLAttributes["data-author"] || "";
+    const authorColor = getAuthorColor(author);
+
     return [
       "ins",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class: "insertion",
+        style: `--author-color: ${authorColor.primary}; --author-color-light: ${authorColor.light};`,
       }),
       0,
     ];

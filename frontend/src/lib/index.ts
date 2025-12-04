@@ -8,6 +8,11 @@ export {
   useComments,
   useCollaboration,
   generateUserColor,
+  getUserColor,
+  getAuthorColor,
+  getAuthorPrimaryColor,
+  getAuthorColorStyles,
+  AUTHOR_COLORS,
 } from "./hooks";
 
 export type {
@@ -19,6 +24,7 @@ export type {
   UseCollaborationOptions,
   UseCollaborationReturn,
   CollaborationUser,
+  AuthorColor,
 } from "./hooks";
 
 // Utilities

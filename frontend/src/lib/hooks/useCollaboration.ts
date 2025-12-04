@@ -4,6 +4,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import * as Y from "yjs";
 import type { Extension } from "@tiptap/core";
+import { getAuthorPrimaryColor, AUTHOR_COLORS } from "../utils/authorColors";
 
 /**
  * User presence information for collaboration cursors
@@ -61,22 +62,24 @@ export interface UseCollaborationReturn {
 }
 
 /**
- * Generate a random color for user cursor
+ * Generate a random color for user cursor.
+ * Uses the shared author color palette for consistency with track changes.
+ * @deprecated Prefer getUserColor(userName) for consistent author colors
  */
 export function generateUserColor(): string {
-  const colors = [
-    "#958DF1",
-    "#F98181",
-    "#FBBC88",
-    "#FAF594",
-    "#70CFF8",
-    "#94FADB",
-    "#B9F18D",
-    "#C3E2C2",
-    "#EAECCC",
-    "#AFC8AD",
-  ];
+  const colors = AUTHOR_COLORS.map((c) => c.primary);
   return colors[Math.floor(Math.random() * colors.length)];
+}
+
+/**
+ * Get a consistent color for a user based on their name.
+ * Uses the shared author color palette for consistency with track changes.
+ *
+ * @param userName - The user's name
+ * @returns A hex color string
+ */
+export function getUserColor(userName: string): string {
+  return getAuthorPrimaryColor(userName);
 }
 
 /**
