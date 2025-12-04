@@ -181,9 +181,116 @@ interface ParagraphInfo {
 }
 
 /**
+ * Extract "clean" text from a paragraph node, excluding deleted text.
+ * This walks through the node's children and skips any text with deletion marks.
+ * Inserted text is included as it represents the current state.
+ */
+function getCleanTextFromNode(node: import("@tiptap/pm/model").Node): string {
+  let text = "";
+
+  node.descendants((child) => {
+    if (child.isText && child.text) {
+      // Check if this text has a deletion mark
+      const hasDeletion = child.marks.some(
+        (mark) => mark.type.name === "deletion",
+      );
+      if (!hasDeletion) {
+        // Include text that is NOT deleted (including inserted text)
+        text += child.text;
+      }
+    }
+    return true;
+  });
+
+  return text;
+}
+
+/**
+ * Track changes context for a selection - provides both original and accepted versions.
+ */
+interface TrackChangesContext {
+  hasTrackChanges: boolean;
+  // Original text (what it was before changes - includes deletions, excludes insertions)
+  originalText: string;
+  // Accepted text (what it would be if all changes accepted - excludes deletions, includes insertions)
+  acceptedText: string;
+  // Paragraph IDs that contain track changes within the selection
+  affectedParagraphIds: string[];
+}
+
+/**
+ * Extract track changes context from a selection range.
+ * Returns both "original" (deletions included, insertions excluded) and
+ * "accepted" (deletions excluded, insertions included) versions of the selected text.
+ */
+function getTrackChangesContext(
+  editor: Editor,
+  from: number,
+  to: number,
+): TrackChangesContext {
+  const doc = editor.state.doc;
+  let originalText = "";
+  let acceptedText = "";
+  let hasTrackChanges = false;
+  const affectedParagraphIds: string[] = [];
+
+  // Walk through the selection range
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name === "paragraph") {
+      const paragraphId = node.attrs.id;
+      let paragraphHasChanges = false;
+
+      // Check each text node in the paragraph
+      node.descendants((child) => {
+        if (child.isText && child.text) {
+          const hasDeletion = child.marks.some(
+            (mark) => mark.type.name === "deletion",
+          );
+          const hasInsertion = child.marks.some(
+            (mark) => mark.type.name === "insertion",
+          );
+
+          if (hasDeletion || hasInsertion) {
+            hasTrackChanges = true;
+            paragraphHasChanges = true;
+          }
+
+          // Original text: include deletions, exclude insertions
+          if (!hasInsertion) {
+            originalText += child.text;
+          }
+
+          // Accepted text: exclude deletions, include insertions
+          if (!hasDeletion) {
+            acceptedText += child.text;
+          }
+        }
+        return true;
+      });
+
+      if (paragraphHasChanges && paragraphId) {
+        affectedParagraphIds.push(paragraphId);
+      }
+    }
+    return true;
+  });
+
+  return {
+    hasTrackChanges,
+    originalText,
+    acceptedText,
+    affectedParagraphIds,
+  };
+}
+
+/**
  * Build an indexed document string with paragraph IDs for AI context.
  * Format: [paragraphId] paragraph text
  * The ID is a UUID that uniquely identifies each paragraph.
+ *
+ * IMPORTANT: This function extracts "clean" text - text with deletion marks
+ * is excluded since it represents content that has been removed.
+ * Inserted text is included since it represents the current document state.
  */
 function buildIndexedDocument(editor: Editor): {
   document: string;
@@ -196,7 +303,8 @@ function buildIndexedDocument(editor: Editor): {
   doc.descendants((node, pos) => {
     if (node.type.name === "paragraph") {
       const id = node.attrs.id;
-      const text = node.textContent;
+      // Use clean text (excluding deletions) for the AI
+      const text = getCleanTextFromNode(node);
 
       if (id) {
         lines.push(`[${id}] ${text}`);
@@ -219,6 +327,7 @@ function buildIndexedDocument(editor: Editor): {
 
 /**
  * Find a paragraph by its ID and return its current position and text.
+ * Returns "clean" text (excluding deletions) to match what AI sees.
  */
 function findParagraphById(
   editor: Editor,
@@ -232,7 +341,8 @@ function findParagraphById(
     if (node.type.name === "paragraph" && node.attrs.id === paragraphId) {
       result = {
         id: paragraphId,
-        text: node.textContent,
+        // Use clean text (excluding deletions) to match what AI sees
+        text: getCleanTextFromNode(node),
         from: pos + 1,
         to: pos + node.nodeSize - 1,
       };
@@ -308,12 +418,15 @@ function buildSystemPrompt(
   hasSelection: boolean,
   selectedText: string,
   contextItems: ContextItem[] = [],
+  trackChangesContext?: TrackChangesContext,
 ): string {
   let prompt = `You are an AI writing assistant helping to edit documents. You can answer questions about the document or suggest edits.
 
 ## Document Format
 The document is provided with each paragraph identified by a unique ID in square brackets.
 Format: [paragraph-id] paragraph text
+
+IMPORTANT: The document shown below represents the CURRENT state of the text. Any pending deletions have already been excluded from this view - you are seeing only the text that is currently visible to the user. Work with this text as-is.
 
 ## Your Response Format
 You MUST respond with valid JSON matching this exact schema:
@@ -336,6 +449,7 @@ You MUST respond with valid JSON matching this exact schema:
 5. If you need to change multiple things in one paragraph, provide ONE edit with all changes in newText
 6. If you need to change multiple paragraphs, provide multiple edit objects
 7. If no edits are needed (e.g., answering a question), omit the "edits" field entirely
+8. Do NOT include any HTML tags, XML tags, or markup in your newText - provide plain text only
 
 ## Example
 If the document contains:
@@ -358,7 +472,28 @@ And the user asks to change British spellings to American, respond:
 ${indexedDocument}
 `;
 
-  if (hasSelection) {
+  if (hasSelection && trackChangesContext?.hasTrackChanges) {
+    // Selection contains track changes - show both versions
+    prompt += `
+## User Selection (Contains Pending Edits)
+The user has selected a section that contains pending track changes. Someone has edited this text - some content was deleted (shown in ORIGINAL) and some content was added (shown in CURRENT).
+
+**ORIGINAL VERSION** (text BEFORE edits - includes deleted content that is currently crossed out):
+"${trackChangesContext.originalText}"
+
+**CURRENT VERSION** (text AFTER edits - the new/replacement text):
+"${trackChangesContext.acceptedText}"
+
+**Affected Paragraph IDs:** ${trackChangesContext.affectedParagraphIds.join(", ")}
+
+CRITICAL INSTRUCTIONS:
+1. You can use content from EITHER version or BOTH versions to construct your response
+2. If the user asks to "restore", "re-include", "bring back", or "keep" something, look for it in the ORIGINAL VERSION - that content was deleted and needs to be put back
+3. Your newText completely REPLACES the paragraph - include ALL text you want to keep
+4. Combine elements from both versions as needed to fulfill the user's request
+5. The user is asking you to resolve these pending edits by producing the final desired text
+`;
+  } else if (hasSelection) {
     prompt += `
 ## User Selection
 The user has selected text: "${selectedText}"
@@ -926,6 +1061,37 @@ export function AIEditorProvider({
     [],
   );
 
+  // Accept all track changes within a specific paragraph
+  const acceptAllChangesInParagraph = useCallback(
+    (ed: Editor, paragraphId: string) => {
+      const editorDom = ed.view.dom;
+
+      // Find all track changes in this paragraph and accept them
+      // We need to find the paragraph element first
+      const paragraphEl = editorDom.querySelector(`[data-id="${paragraphId}"]`);
+      if (!paragraphEl) return;
+
+      // Accept all deletions in this paragraph
+      const deletions = paragraphEl.querySelectorAll("del[data-deletion-id]");
+      deletions.forEach((del) => {
+        const id = del.getAttribute("data-deletion-id");
+        if (id) {
+          ed.commands.acceptDeletion(id);
+        }
+      });
+
+      // Accept all insertions in this paragraph
+      const insertions = paragraphEl.querySelectorAll("ins[data-insertion-id]");
+      insertions.forEach((ins) => {
+        const id = ins.getAttribute("data-insertion-id");
+        if (id) {
+          ed.commands.acceptInsertion(id);
+        }
+      });
+    },
+    [],
+  );
+
   // Apply paragraph edits from AI response and return word-level AIEdits
   const applyEditsAsTrackChanges = useCallback(
     (
@@ -938,6 +1104,12 @@ export function AIEditorProvider({
     ): AIEdit[] => {
       const ed = editorRef.current;
       if (!ed || paragraphEdits.length === 0) return [];
+
+      // First, accept all existing track changes in affected paragraphs
+      // This ensures clean positions for applying new edits
+      for (const paraEdit of paragraphEdits) {
+        acceptAllChangesInParagraph(ed, paraEdit.paragraphId);
+      }
 
       // Enable track changes with AI author
       const wasEnabled = ed.storage.trackChangesMode?.enabled || false;
@@ -967,7 +1139,7 @@ export function AIEditorProvider({
 
       return allEdits;
     },
-    [applyParagraphEdit],
+    [applyParagraphEdit, acceptAllChangesInParagraph],
   );
 
   // Send prompt to AI (either via custom handler or direct OpenAI)
@@ -993,6 +1165,21 @@ export function AIEditorProvider({
       const { from, to } = ed.state.selection;
       const selectedText = ed.state.doc.textBetween(from, to, " ");
       const hasSelection = from !== to && selectedText.length > 0;
+
+      // Check for track changes in selection
+      const trackChangesContext = hasSelection
+        ? getTrackChangesContext(ed, from, to)
+        : undefined;
+
+      if (trackChangesContext?.hasTrackChanges) {
+        console.log("[sendPrompt] Selection contains track changes:");
+        console.log("  Original:", trackChangesContext.originalText);
+        console.log("  Accepted:", trackChangesContext.acceptedText);
+        console.log(
+          "  Affected paragraphs:",
+          trackChangesContext.affectedParagraphIds,
+        );
+      }
 
       // Build indexed document for AI
       const { document: indexedDocument, paragraphs } =
@@ -1070,7 +1257,10 @@ export function AIEditorProvider({
             hasSelection,
             selectedText,
             contextItems,
+            trackChangesContext,
           );
+
+          console.log("[sendPrompt] Full system prompt:\n", systemPrompt);
 
           // Define JSON schema for structured output
           const responseSchema = {
