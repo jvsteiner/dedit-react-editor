@@ -1694,6 +1694,25 @@ export function AIEditorProvider({
             },
           };
 
+          console.log("[sendPrompt] Review mode - sending API request...");
+          console.log("[sendPrompt] Model:", config.aiModel || "gpt-5-mini");
+          console.log("[sendPrompt] User prompt:", effectivePrompt);
+
+          const requestBody = {
+            model: config.aiModel || "gpt-5-mini",
+            messages: [
+              { role: "system", content: reviewPrompt },
+              { role: "user", content: effectivePrompt },
+            ],
+            temperature: config.aiTemperature ?? 1.0,
+            max_completion_tokens: 65536,
+            response_format: reviewSchema,
+          };
+          console.log(
+            "[sendPrompt] Request body:",
+            JSON.stringify(requestBody, null, 2).substring(0, 1000) + "...",
+          );
+
           const response = await fetch(
             "https://api.openai.com/v1/chat/completions",
             {
@@ -1702,21 +1721,15 @@ export function AIEditorProvider({
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${apiKey}`,
               },
-              body: JSON.stringify({
-                model: config.aiModel || "gpt-5-mini",
-                messages: [
-                  { role: "system", content: reviewPrompt },
-                  { role: "user", content: effectivePrompt },
-                ],
-                temperature: config.aiTemperature ?? 1.0,
-                max_completion_tokens: 16384,
-                response_format: reviewSchema,
-              }),
+              body: JSON.stringify(requestBody),
             },
           );
 
+          console.log("[sendPrompt] Response status:", response.status);
+
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            console.error("[sendPrompt] API error:", errorData);
             throw new Error(
               errorData.error?.message ||
                 `API request failed: ${response.status}`,
@@ -1724,11 +1737,13 @@ export function AIEditorProvider({
           }
 
           const data = await response.json();
-          const assistantContent = data.choices?.[0]?.message?.content || "{}";
+          console.log("[sendPrompt] Response data received");
           console.log(
-            "[sendPrompt] Review response:",
-            assistantContent.substring(0, 500) + "...",
+            "[sendPrompt] Full API response:",
+            JSON.stringify(data, null, 2),
           );
+          const assistantContent = data.choices?.[0]?.message?.content || "{}";
+          console.log("[sendPrompt] Assistant content:", assistantContent);
 
           // Parse review response
           let reviewResponse: {
@@ -1912,7 +1927,7 @@ export function AIEditorProvider({
                     { role: "user", content: prompt },
                   ],
                   temperature: config.aiTemperature ?? 1.0,
-                  max_completion_tokens: 16384,
+                  max_completion_tokens: 65536,
                   response_format: responseSchema,
                 }),
               },

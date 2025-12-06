@@ -5,7 +5,7 @@
 
 ## Important Notes
 
-- **Preferred OpenAI Model**: `gpt-5-mini` - Use this as the default model for AI features
+- **Preferred OpenAI Model**: `gpt-5-mini` - Use this as the default model for AI features.  gpt-5 models REQUIRE temprature=1.0  Do NOT attempt to suggest a lower temprature for gpt-5 based models.
 
 ## Project Overview
 
