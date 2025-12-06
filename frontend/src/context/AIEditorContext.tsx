@@ -109,18 +109,110 @@ export interface AIReviewResponse {
   }>;
 }
 
+// ============================================================================
+// Pluggable Mode System
+// ============================================================================
+
+/**
+ * Context passed to mode handlers - contains all information about current state
+ */
+export interface ModeContext {
+  /** The prompt text (without the /command prefix) */
+  prompt: string;
+  /** Selected text, if any */
+  selectedText: string | null;
+  /** Whether there's an active selection */
+  hasSelection: boolean;
+  /** Document paragraphs with IDs and text */
+  paragraphs: Array<{ id: string; text: string }>;
+  /** Track changes in the document (for review-type modes) */
+  trackChanges: Array<{
+    id: string;
+    type: "insertion" | "deletion";
+    text: string;
+    author: string | null;
+    date: string | null;
+    paragraphId: string;
+    pos: number;
+    endPos: number;
+  }>;
+  /** Grouped track changes (adjacent deletion+insertion pairs) */
+  groupedChanges: Array<{
+    deletionIds: string[];
+    insertionIds: string[];
+    deletedText: string;
+    insertedText: string;
+    author: string | null;
+  }>;
+  /** Context items (files, URLs, etc.) attached to the prompt */
+  contextItems: ContextItem[];
+  /** The TipTap editor instance (for advanced use) */
+  editor: Editor;
+}
+
+/**
+ * Edit to apply to a paragraph (for edit-type modes)
+ */
+export interface ModeEdit {
+  paragraphId: string;
+  newText: string;
+  reason?: string;
+}
+
+/**
+ * Recommendation for a track change (for review-type modes)
+ */
+export interface ModeRecommendation {
+  /** Index into the groupedChanges array */
+  index: number;
+  recommendation: "accept" | "reject" | "leave_alone";
+  reason: string;
+}
+
+/**
+ * Result returned from a mode handler
+ */
+export interface ModeResult {
+  /** Message to display in the chat */
+  message: string;
+  /** Edits to apply (triggers edit UI with accept/reject) */
+  edits?: ModeEdit[];
+  /** Recommendations for track changes (triggers review UI with apply/discard) */
+  recommendations?: ModeRecommendation[];
+}
+
+/**
+ * A pluggable AI mode (slash command)
+ */
+export interface AIMode {
+  /** Command name (without slash), e.g. "review", "summarize" */
+  name: string;
+  /** Description shown in command palette */
+  description: string;
+  /** Icon shown in command palette and pill */
+  icon: ReactNode;
+  /** Handler function that processes the command */
+  handler: (context: ModeContext) => Promise<ModeResult>;
+}
+
 export interface AIEditorConfig {
   aiAuthorName?: string;
 
-  // Custom AI request handler for edit mode - if provided, edit AI calls go through this
+  // Custom AI modes (slash commands) - these are merged with built-in modes
+  // If a custom mode has the same name as a built-in, the custom one takes precedence
+  modes?: AIMode[];
+
+  // Legacy: Custom AI request handler for edit mode
+  // If provided, the built-in "edit" mode will use this handler
   // If not provided, falls back to direct OpenAI API (requires apiKey)
   onAIRequest?: (request: AIEditRequest) => Promise<AIEditResponse>;
 
-  // Custom AI request handler for review mode - if provided, review AI calls go through this
+  // Legacy: Custom AI request handler for review mode
+  // If provided, the built-in "review" mode will use this handler
   // If not provided, falls back to direct OpenAI API (requires apiKey)
   onAIReviewRequest?: (request: AIReviewRequest) => Promise<AIReviewResponse>;
 
-  // Only used if onAIRequest/onAIReviewRequest is not provided (direct OpenAI mode)
+  // Only used if handlers are not provided (direct OpenAI mode)
   aiModel?: string;
   aiTemperature?: number;
 
@@ -132,6 +224,9 @@ export interface AIEditorState {
   // Config
   config: AIEditorConfig;
   setConfig: (config: Partial<AIEditorConfig>) => void;
+
+  // Available modes (built-in + custom)
+  availableModes: AIMode[];
 
   // API Key
   apiKey: string | null;
@@ -158,10 +253,7 @@ export interface AIEditorState {
   setError: (error: string | null) => void;
 
   // Actions
-  sendPrompt: (
-    prompt: string,
-    options?: { forceReviewMode?: boolean },
-  ) => Promise<void>;
+  sendPrompt: (prompt: string, options?: { mode?: AIMode }) => Promise<void>;
   scrollToEdit: (edit: AIEdit) => void;
   goToEditAndSelect: (edit: AIEdit) => void;
 
@@ -260,71 +352,6 @@ interface TrackChangesContext {
   acceptedText: string;
   // Paragraph IDs that contain track changes within the selection
   affectedParagraphIds: string[];
-}
-
-/**
- * Extract track changes context from a selection range.
- * Returns both "original" (deletions included, insertions excluded) and
- * "accepted" (deletions excluded, insertions included) versions of the selected text.
- */
-function getTrackChangesContext(
-  editor: Editor,
-  from: number,
-  to: number,
-): TrackChangesContext {
-  const doc = editor.state.doc;
-  let originalText = "";
-  let acceptedText = "";
-  let hasTrackChanges = false;
-  const affectedParagraphIds: string[] = [];
-
-  // Walk through the selection range
-  doc.nodesBetween(from, to, (node, _pos) => {
-    if (node.type.name === "paragraph") {
-      const paragraphId = node.attrs.id;
-      let paragraphHasChanges = false;
-
-      // Check each text node in the paragraph
-      node.descendants((child) => {
-        if (child.isText && child.text) {
-          const hasDeletion = child.marks.some(
-            (mark) => mark.type.name === "deletion",
-          );
-          const hasInsertion = child.marks.some(
-            (mark) => mark.type.name === "insertion",
-          );
-
-          if (hasDeletion || hasInsertion) {
-            hasTrackChanges = true;
-            paragraphHasChanges = true;
-          }
-
-          // Original text: include deletions, exclude insertions
-          if (!hasInsertion) {
-            originalText += child.text;
-          }
-
-          // Accepted text: exclude deletions, include insertions
-          if (!hasDeletion) {
-            acceptedText += child.text;
-          }
-        }
-        return true;
-      });
-
-      if (paragraphHasChanges && paragraphId) {
-        affectedParagraphIds.push(paragraphId);
-      }
-    }
-    return true;
-  });
-
-  return {
-    hasTrackChanges,
-    originalText,
-    acceptedText,
-    affectedParagraphIds,
-  };
 }
 
 /**
@@ -452,30 +479,6 @@ function computeDiff(
   }
 
   return changes;
-}
-
-/**
- * Parse the /review command from a prompt.
- * Returns the prompt text without the command prefix.
- */
-function parseReviewCommand(prompt: string): {
-  isReviewCommand: boolean;
-  promptText: string;
-} {
-  const trimmed = prompt.trim();
-  const reviewMatch = trimmed.match(/^\/review\s*(.*)/i);
-
-  if (reviewMatch) {
-    return {
-      isReviewCommand: true,
-      promptText: reviewMatch[1] || "",
-    };
-  }
-
-  return {
-    isReviewCommand: false,
-    promptText: trimmed,
-  };
 }
 
 /**
@@ -763,6 +766,331 @@ ${item.content}
   }
 
   return prompt;
+}
+
+// ============================================================================
+// OpenAI Response Schemas (for direct API mode)
+// ============================================================================
+
+const REVIEW_RESPONSE_SCHEMA = {
+  type: "json_schema",
+  json_schema: {
+    name: "ai_review_response",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "Summary of the review",
+        },
+        recommendations: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              index: {
+                type: "number",
+                description: "Index of the change being evaluated",
+              },
+              recommendation: {
+                type: "string",
+                enum: ["accept", "reject", "leave_alone"],
+                description: "The recommended action",
+              },
+              reason: {
+                type: "string",
+                description: "Brief explanation for this recommendation",
+              },
+            },
+            required: ["index", "recommendation", "reason"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["message", "recommendations"],
+      additionalProperties: false,
+    },
+  },
+};
+
+const EDIT_RESPONSE_SCHEMA = {
+  type: "json_schema",
+  json_schema: {
+    name: "ai_edit_response",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "Response message explaining what was done",
+        },
+        edits: {
+          type: "array",
+          description: "Array of paragraph edits (empty if no changes needed)",
+          items: {
+            type: "object",
+            properties: {
+              paragraphId: {
+                type: "string",
+                description: "The UUID of the paragraph to edit",
+              },
+              newText: {
+                type: "string",
+                description: "The complete new text for the paragraph",
+              },
+              reason: {
+                type: "string",
+                description: "Brief explanation of what was changed",
+              },
+            },
+            required: ["paragraphId", "newText", "reason"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["message", "edits"],
+      additionalProperties: false,
+    },
+  },
+};
+
+// ============================================================================
+// Built-in Mode Handler Factories
+// ============================================================================
+
+interface HandlerDependencies {
+  config: AIEditorConfig;
+  apiKey: string | null;
+  buildSystemPromptFn: typeof buildSystemPrompt;
+}
+
+/**
+ * Create the review mode handler.
+ * Uses config.onAIReviewRequest if provided, otherwise calls OpenAI directly.
+ */
+function createReviewModeHandler(
+  deps: HandlerDependencies,
+): (context: ModeContext) => Promise<ModeResult> {
+  return async (context: ModeContext): Promise<ModeResult> => {
+    const { config, apiKey } = deps;
+    const { prompt, groupedChanges } = context;
+
+    // Build the system prompt for review
+    const systemPrompt = buildReviewSystemPrompt(groupedChanges, prompt);
+
+    if (config.onAIReviewRequest) {
+      // Use custom handler
+      console.log("[reviewMode] Using custom onAIReviewRequest handler");
+
+      const request: AIReviewRequest = {
+        prompt,
+        changes: groupedChanges.map((gc, idx) => ({
+          index: idx,
+          deletedText: gc.deletedText,
+          insertedText: gc.insertedText,
+          author: gc.author,
+        })),
+      };
+
+      const response = await config.onAIReviewRequest(request);
+      return {
+        message: response.message,
+        recommendations: response.recommendations,
+      };
+    }
+
+    // Direct OpenAI API mode
+    console.log("[reviewMode] Using direct OpenAI API");
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.aiModel || "gpt-5-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ],
+        temperature: config.aiTemperature ?? 1.0,
+        max_completion_tokens: 65536,
+        response_format: REVIEW_RESPONSE_SCHEMA,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error?.message || `API request failed: ${response.status}`,
+      );
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "{}";
+
+    try {
+      const parsed = JSON.parse(content);
+      return {
+        message: parsed.message || "",
+        recommendations: parsed.recommendations || [],
+      };
+    } catch {
+      return { message: content, recommendations: [] };
+    }
+  };
+}
+
+/**
+ * Create the edit mode handler.
+ * Uses config.onAIRequest if provided, otherwise calls OpenAI directly.
+ */
+function createEditModeHandler(
+  deps: HandlerDependencies,
+): (context: ModeContext) => Promise<ModeResult> {
+  return async (context: ModeContext): Promise<ModeResult> => {
+    const { config, apiKey, buildSystemPromptFn } = deps;
+    const { prompt, paragraphs, selectedText, hasSelection, contextItems } =
+      context;
+
+    if (config.onAIRequest) {
+      // Use custom handler
+      console.log("[editMode] Using custom onAIRequest handler");
+
+      const request: AIEditRequest = {
+        prompt,
+        paragraphs,
+        selection: hasSelection
+          ? { text: selectedText || "", hasSelection: true }
+          : undefined,
+        contextItems: contextItems.length > 0 ? contextItems : undefined,
+      };
+
+      const response = await config.onAIRequest(request);
+      return {
+        message: response.message,
+        edits: response.edits.map((e) => ({
+          paragraphId: e.paragraphId,
+          newText: e.newText,
+          reason: e.reason,
+        })),
+      };
+    }
+
+    // Direct OpenAI API mode - need to build the full document
+    console.log("[editMode] Using direct OpenAI API");
+
+    // Build indexed document string from paragraphs
+    const indexedDocument = paragraphs
+      .map((p) => `[${p.id}] ${p.text}`)
+      .join("\n\n");
+
+    const systemPrompt = buildSystemPromptFn(
+      indexedDocument,
+      hasSelection,
+      selectedText || "",
+      contextItems,
+      undefined, // trackChangesContext - would need to pass this through
+    );
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.aiModel || "gpt-5-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ],
+        temperature: config.aiTemperature ?? 1.0,
+        max_completion_tokens: 65536,
+        response_format: EDIT_RESPONSE_SCHEMA,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error?.message || `API request failed: ${response.status}`,
+      );
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "{}";
+
+    try {
+      const parsed = JSON.parse(content);
+      return {
+        message: parsed.message || "",
+        edits: parsed.edits || [],
+      };
+    } catch {
+      return { message: content, edits: [] };
+    }
+  };
+}
+
+// ============================================================================
+// Built-in Mode Icons
+// ============================================================================
+
+const ReviewIcon = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
+    <path d="M9 11l3 3L22 4" />
+    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+  </svg>
+);
+
+// ============================================================================
+// Built-in Modes
+// ============================================================================
+
+/**
+ * Create built-in modes with handlers wired to the given dependencies.
+ */
+function createBuiltInModes(deps: HandlerDependencies): AIMode[] {
+  return [
+    {
+      name: "review",
+      description: "Review track changes and recommend accept/reject",
+      icon: ReviewIcon,
+      handler: createReviewModeHandler(deps),
+    },
+  ];
+}
+
+/**
+ * Get all available modes, merging built-in with custom modes.
+ * Custom modes with the same name override built-in ones.
+ */
+function getAvailableModes(
+  customModes: AIMode[] | undefined,
+  deps: HandlerDependencies,
+): AIMode[] {
+  const builtIn = createBuiltInModes(deps);
+
+  if (!customModes || customModes.length === 0) {
+    return builtIn;
+  }
+
+  // Custom modes override built-in modes with the same name
+  const customNames = new Set(customModes.map((m) => m.name));
+  const filteredBuiltIn = builtIn.filter((m) => !customNames.has(m.name));
+
+  return [...filteredBuiltIn, ...customModes];
 }
 
 export function AIEditorProvider({
@@ -1535,19 +1863,27 @@ export function AIEditorProvider({
     [applyParagraphEdit, acceptAllChangesInParagraph],
   );
 
-  // Send prompt to AI (either via custom handler or direct OpenAI)
+  // Send prompt to AI via mode handler
   const sendPrompt = useCallback(
-    async (prompt: string, options?: { forceReviewMode?: boolean }) => {
-      // Check if we have a way to make AI requests
-      const hasCustomHandler = !!config.onAIRequest;
-      if (!hasCustomHandler && !apiKey) {
-        setError("Please enter your OpenAI API key");
-        return;
-      }
-
+    async (prompt: string, options?: { mode?: AIMode }) => {
       const ed = editorRef.current;
       if (!ed) {
         setError("Editor not connected");
+        return;
+      }
+
+      // Get the mode to use
+      const mode = options?.mode;
+      const isReviewMode = mode?.name === "review";
+
+      // Check if we have a way to make AI requests
+      const hasCustomHandler = isReviewMode
+        ? !!config.onAIReviewRequest
+        : !!config.onAIRequest;
+      const hasModeHandler = mode?.handler != null;
+
+      if (!hasCustomHandler && !hasModeHandler && !apiKey) {
+        setError("Please enter your OpenAI API key");
         return;
       }
 
@@ -1571,19 +1907,15 @@ export function AIEditorProvider({
       );
       const hasTrackChanges = pendingTrackChanges.length > 0;
 
-      // Parse /review command from prompt
-      const { isReviewCommand, promptText } = parseReviewCommand(prompt);
-      const reviewRequested = isReviewCommand || options?.forceReviewMode;
-
-      // If /review was requested but no track changes in scope, return early with message
-      if (reviewRequested && !hasTrackChanges) {
+      // If review mode requested but no track changes, return early
+      if (isReviewMode && !hasTrackChanges) {
         const message = hasSelection
           ? "No track changes found in the selected text. Select text containing track changes, or clear your selection to review all changes in the document."
           : "No track changes found in the document. There's nothing to review.";
 
         addMessage({
           role: "user",
-          content: prompt,
+          content: mode ? `/${mode.name} ${prompt}` : prompt,
           metadata: { isReviewMode: true },
         });
         addMessage({
@@ -1594,44 +1926,38 @@ export function AIEditorProvider({
         return;
       }
 
-      // Review mode is ONLY enabled by explicit /review command (and requires pending changes)
-      const isReviewMode = reviewRequested && hasTrackChanges;
-
-      // Use the cleaned prompt text (without /review prefix) for AI
-      const effectivePrompt = isReviewCommand ? promptText : prompt;
-
-      console.log("[sendPrompt] Mode:", isReviewMode ? "REVIEW" : "EDIT");
-      console.log("[sendPrompt] Review command detected:", isReviewCommand);
+      console.log("[sendPrompt] Mode:", mode?.name || "edit (default)");
       console.log(
         "[sendPrompt] Pending track changes:",
         pendingTrackChanges.length,
       );
 
-      // Check for track changes in selection (for edit mode context)
-      const trackChangesContext = hasSelection
-        ? getTrackChangesContext(ed, from, to)
-        : undefined;
-
-      if (trackChangesContext?.hasTrackChanges) {
-        console.log("[sendPrompt] Selection contains track changes:");
-        console.log("  Original:", trackChangesContext.originalText);
-        console.log("  Accepted:", trackChangesContext.acceptedText);
-        console.log(
-          "  Affected paragraphs:",
-          trackChangesContext.affectedParagraphIds,
-        );
-      }
-
-      // Build indexed document for AI (used in edit mode)
-      const { document: indexedDocument, paragraphs } =
-        buildIndexedDocument(ed);
+      // Build indexed document
+      const { paragraphs } = buildIndexedDocument(ed);
       paragraphMapRef.current = paragraphs;
 
-      // Add user message with context items
-      // Show the original prompt (with /review) so user sees what they typed
+      // Group track changes
+      const groupedChanges = groupTrackChanges(pendingTrackChanges);
+
+      // Build the mode context
+      const modeContext: ModeContext = {
+        prompt,
+        selectedText: hasSelection ? selectedText : null,
+        hasSelection,
+        paragraphs: Array.from(paragraphs.values()).map((p) => ({
+          id: p.id,
+          text: p.text,
+        })),
+        trackChanges: pendingTrackChanges,
+        groupedChanges,
+        contextItems,
+        editor: ed,
+      };
+
+      // Add user message
       addMessage({
         role: "user",
-        content: prompt,
+        content: mode ? `/${mode.name} ${prompt}` : prompt,
         metadata: {
           selectionContext: {
             text: selectedText,
@@ -1645,176 +1971,29 @@ export function AIEditorProvider({
       });
 
       try {
-        if (isReviewMode) {
-          // ========== REVIEW MODE ==========
-          console.log("[sendPrompt] Entering review mode");
+        let result: ModeResult;
 
-          // Group track changes (pair adjacent deletion+insertion)
-          const groupedChanges = groupTrackChanges(pendingTrackChanges);
-          console.log("[sendPrompt] Grouped changes:", groupedChanges.length);
+        if (mode) {
+          // Dispatch to mode handler
+          console.log(`[sendPrompt] Dispatching to mode handler: ${mode.name}`);
+          result = await mode.handler(modeContext);
+        } else {
+          // Default edit mode - use legacy path with createEditModeHandler
+          console.log("[sendPrompt] Using default edit mode");
+          const editHandler = createEditModeHandler({
+            config,
+            apiKey,
+            buildSystemPromptFn: buildSystemPrompt,
+          });
+          result = await editHandler(modeContext);
+        }
 
-          // Build review system prompt (use effectivePrompt without /review prefix)
-          const reviewPrompt = buildReviewSystemPrompt(
-            groupedChanges,
-            effectivePrompt,
-          );
-          console.log(
-            "[sendPrompt] Review prompt:\n",
-            reviewPrompt.substring(0, 500) + "...",
-          );
-
-          // Parse review response - will be populated by either custom handler or direct API
-          let reviewResponse: {
-            message: string;
-            recommendations: Array<{
-              index: number;
-              recommendation: "accept" | "reject" | "leave_alone";
-              reason: string;
-            }>;
-          };
-
-          if (config.onAIReviewRequest) {
-            // Use custom handler (backend proxy mode)
-            console.log("[sendPrompt] Using custom onAIReviewRequest handler");
-
-            const request: AIReviewRequest = {
-              prompt: effectivePrompt,
-              changes: groupedChanges.map((gc, idx) => ({
-                index: idx,
-                deletedText: gc.deletedText,
-                insertedText: gc.insertedText,
-                author: gc.author,
-              })),
-            };
-
-            const response = await config.onAIReviewRequest(request);
-            reviewResponse = {
-              message: response.message,
-              recommendations: response.recommendations,
-            };
-
-            console.log(
-              "[sendPrompt] Custom handler response - message:",
-              reviewResponse.message?.substring(0, 100),
-            );
-            console.log(
-              "[sendPrompt] Custom handler response - recommendations:",
-              reviewResponse.recommendations?.length || 0,
-            );
-          } else {
-            // Direct OpenAI API mode
-            console.log("[sendPrompt] Using direct OpenAI API for review");
-
-            // Define JSON schema for review response
-            const reviewSchema = {
-              type: "json_schema",
-              json_schema: {
-                name: "ai_review_response",
-                strict: true,
-                schema: {
-                  type: "object",
-                  properties: {
-                    message: {
-                      type: "string",
-                      description: "Summary of the review",
-                    },
-                    recommendations: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          index: {
-                            type: "number",
-                            description: "Index of the change being evaluated",
-                          },
-                          recommendation: {
-                            type: "string",
-                            enum: ["accept", "reject", "leave_alone"],
-                            description: "The recommended action",
-                          },
-                          reason: {
-                            type: "string",
-                            description:
-                              "Brief explanation for this recommendation",
-                          },
-                        },
-                        required: ["index", "recommendation", "reason"],
-                        additionalProperties: false,
-                      },
-                    },
-                  },
-                  required: ["message", "recommendations"],
-                  additionalProperties: false,
-                },
-              },
-            };
-
-            console.log("[sendPrompt] Review mode - sending API request...");
-            console.log("[sendPrompt] Model:", config.aiModel || "gpt-5-mini");
-            console.log("[sendPrompt] User prompt:", effectivePrompt);
-
-            const requestBody = {
-              model: config.aiModel || "gpt-5-mini",
-              messages: [
-                { role: "system", content: reviewPrompt },
-                { role: "user", content: effectivePrompt },
-              ],
-              temperature: config.aiTemperature ?? 1.0,
-              max_completion_tokens: 65536,
-              response_format: reviewSchema,
-            };
-            console.log(
-              "[sendPrompt] Request body:",
-              JSON.stringify(requestBody, null, 2).substring(0, 1000) + "...",
-            );
-
-            const response = await fetch(
-              "https://api.openai.com/v1/chat/completions",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${apiKey}`,
-                },
-                body: JSON.stringify(requestBody),
-              },
-            );
-
-            console.log("[sendPrompt] Response status:", response.status);
-
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({}));
-              console.error("[sendPrompt] API error:", errorData);
-              throw new Error(
-                errorData.error?.message ||
-                  `API request failed: ${response.status}`,
-              );
-            }
-
-            const data = await response.json();
-            console.log("[sendPrompt] Response data received");
-            console.log(
-              "[sendPrompt] Full API response:",
-              JSON.stringify(data, null, 2),
-            );
-            const assistantContent =
-              data.choices?.[0]?.message?.content || "{}";
-            console.log("[sendPrompt] Assistant content:", assistantContent);
-
-            try {
-              reviewResponse = JSON.parse(assistantContent);
-            } catch (parseErr) {
-              console.error("[sendPrompt] Review JSON parse failed:", parseErr);
-              reviewResponse = {
-                message: assistantContent,
-                recommendations: [],
-              };
-            }
-          }
-
-          // Convert AI recommendations to TrackChangeRecommendation objects
+        // Process the result based on what was returned
+        if (result.recommendations && result.recommendations.length > 0) {
+          // ========== REVIEW-TYPE RESULT ==========
+          // Convert to TrackChangeRecommendation objects
           const recommendations: TrackChangeRecommendation[] = [];
-          for (const rec of reviewResponse.recommendations) {
+          for (const rec of result.recommendations) {
             const grouped = groupedChanges[rec.index];
             if (!grouped) {
               console.warn(
@@ -1840,10 +2019,9 @@ export function AIEditorProvider({
             `[sendPrompt] Created ${recommendations.length} recommendations`,
           );
 
-          // Add assistant message with recommendations
           addMessage({
             role: "assistant",
-            content: reviewResponse.message || "Review complete.",
+            content: result.message || "Review complete.",
             metadata: {
               recommendations:
                 recommendations.length > 0 ? recommendations : undefined,
@@ -1855,185 +2033,34 @@ export function AIEditorProvider({
           if (recommendations.length > 0) {
             setTimeout(() => goToRecommendation(recommendations[0]), 200);
           }
-        } else {
-          // ========== EDIT MODE (existing behavior) ==========
-          let aiResponse: AIResponse;
-
-          if (config.onAIRequest) {
-            // Use custom handler (backend proxy mode)
-            console.log("[sendPrompt] Using custom onAIRequest handler");
-
-            const paragraphArray = Array.from(paragraphs.values()).map((p) => ({
-              id: p.id,
-              text: p.text,
-            }));
-
-            const request: AIEditRequest = {
-              prompt,
-              paragraphs: paragraphArray,
-              selection: hasSelection
-                ? { text: selectedText, hasSelection: true }
-                : undefined,
-              contextItems: contextItems.length > 0 ? contextItems : undefined,
-            };
-
-            const response = await config.onAIRequest(request);
-            aiResponse = {
-              message: response.message,
-              edits: response.edits.map((e) => ({
-                paragraphId: e.paragraphId,
-                newText: e.newText,
-                reason: e.reason,
-              })),
-            };
-
-            console.log(
-              "[sendPrompt] Custom handler response - message:",
-              aiResponse.message?.substring(0, 100),
-            );
-            console.log(
-              "[sendPrompt] Custom handler response - edits:",
-              aiResponse.edits?.length || 0,
-            );
-          } else {
-            // Direct OpenAI API mode
-            console.log("[sendPrompt] Using direct OpenAI API");
-
-            const systemPrompt = buildSystemPrompt(
-              indexedDocument,
-              hasSelection,
-              selectedText,
-              contextItems,
-              trackChangesContext,
-            );
-
-            console.log("[sendPrompt] Full system prompt:\n", systemPrompt);
-
-            const responseSchema = {
-              type: "json_schema",
-              json_schema: {
-                name: "ai_edit_response",
-                strict: true,
-                schema: {
-                  type: "object",
-                  properties: {
-                    message: {
-                      type: "string",
-                      description: "Response message explaining what was done",
-                    },
-                    edits: {
-                      type: "array",
-                      description:
-                        "Array of paragraph edits (empty if no changes needed)",
-                      items: {
-                        type: "object",
-                        properties: {
-                          paragraphId: {
-                            type: "string",
-                            description: "The UUID of the paragraph to edit",
-                          },
-                          newText: {
-                            type: "string",
-                            description:
-                              "The complete new text for the paragraph",
-                          },
-                          reason: {
-                            type: "string",
-                            description:
-                              "Brief explanation of what was changed",
-                          },
-                        },
-                        required: ["paragraphId", "newText", "reason"],
-                        additionalProperties: false,
-                      },
-                    },
-                  },
-                  required: ["message", "edits"],
-                  additionalProperties: false,
-                },
-              },
-            };
-
-            const response = await fetch(
-              "https://api.openai.com/v1/chat/completions",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${apiKey}`,
-                },
-                body: JSON.stringify({
-                  model: config.aiModel || "gpt-5-mini",
-                  messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: prompt },
-                  ],
-                  temperature: config.aiTemperature ?? 1.0,
-                  max_completion_tokens: 65536,
-                  response_format: responseSchema,
-                }),
-              },
-            );
-
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({}));
-              throw new Error(
-                errorData.error?.message ||
-                  `API request failed: ${response.status}`,
-              );
-            }
-
-            const data = await response.json();
-            const assistantContent =
-              data.choices?.[0]?.message?.content || "{}";
-            console.log(
-              "[sendPrompt] Raw response:",
-              assistantContent.substring(0, 500) + "...",
-            );
-
-            try {
-              aiResponse = JSON.parse(assistantContent);
-              console.log(
-                "[sendPrompt] Parsed - message:",
-                aiResponse.message?.substring(0, 100),
-              );
-              console.log(
-                "[sendPrompt] Parsed - edits:",
-                aiResponse.edits?.length || 0,
-              );
-            } catch (parseErr) {
-              console.error("[sendPrompt] JSON parse failed:", parseErr);
-              aiResponse = { message: assistantContent, edits: [] };
-            }
-          }
-
-          // Apply edits as track changes and get word-level AIEdit objects
+        } else if (result.edits && result.edits.length > 0) {
+          // ========== EDIT-TYPE RESULT ==========
+          // Apply edits as track changes
           let processedEdits: AIEdit[] = [];
-          if (aiResponse.edits && aiResponse.edits.length > 0) {
-            try {
-              processedEdits = applyEditsAsTrackChanges(
-                aiResponse.edits,
-                config.aiAuthorName || "AI",
-              );
-              console.log(
-                `[sendPrompt] Applied ${aiResponse.edits.length} paragraph edits, got ${processedEdits.length} word-level edits`,
-              );
-            } catch (applyErr) {
-              console.error("[sendPrompt] Error applying edits:", applyErr);
-            }
+          try {
+            processedEdits = applyEditsAsTrackChanges(
+              result.edits,
+              config.aiAuthorName || "AI",
+            );
+            console.log(
+              `[sendPrompt] Applied ${result.edits.length} paragraph edits, got ${processedEdits.length} word-level edits`,
+            );
+          } catch (applyErr) {
+            console.error("[sendPrompt] Error applying edits:", applyErr);
           }
 
-          // Add assistant message
-          console.log(
-            "[sendPrompt] Adding message:",
-            aiResponse.message?.substring(0, 100),
-          );
           addMessage({
             role: "assistant",
-            content: aiResponse.message || "No message provided",
+            content: result.message || "No message provided",
             metadata: {
               edits: processedEdits.length > 0 ? processedEdits : undefined,
             },
+          });
+        } else {
+          // ========== MESSAGE-ONLY RESULT ==========
+          addMessage({
+            role: "assistant",
+            content: result.message || "No message provided",
           });
         }
       } catch (err) {
@@ -2058,9 +2085,18 @@ export function AIEditorProvider({
     ],
   );
 
+  // Compute available modes (built-in + custom)
+  const handlerDeps: HandlerDependencies = {
+    config,
+    apiKey,
+    buildSystemPromptFn: buildSystemPrompt,
+  };
+  const availableModes = getAvailableModes(config.modes, handlerDeps);
+
   const value: AIEditorState = {
     config,
     setConfig,
+    availableModes,
     apiKey,
     setApiKey,
     editor,

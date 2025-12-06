@@ -2059,9 +2059,16 @@ interface AIEditorConfig {
   // Author name shown on AI-generated track changes
   aiAuthorName?: string;
 
-  // Custom AI request handler - if provided, all AI calls go through this
+  // Custom AI request handler - if provided, /edit calls go through this
   // If not provided, falls back to direct OpenAI API (requires apiKey)
   onAIRequest?: (request: AIEditRequest) => Promise<AIEditResponse>;
+
+  // Custom handler for /review mode - reviews track changes
+  // If not provided, falls back to direct OpenAI API (requires apiKey)
+  onAIReviewRequest?: (request: AIReviewRequest) => Promise<AIReviewResponse>;
+
+  // Custom slash command modes (added alongside built-in /edit and /review)
+  modes?: AIMode[];
 
   // Only used if onAIRequest is not provided (direct OpenAI mode)
   aiModel?: string;        // Default: "gpt-5-mini"
@@ -2587,6 +2594,191 @@ async def ai_edit(request: AIEditRequest, user: User = Depends(get_current_user)
 - Audit trail for compliance
 - Rate limiting and cost control
 - Can swap AI providers without frontend changes
+
+### Custom Slash Commands (Modes)
+
+The AI system supports custom slash commands through a pluggable mode system. The built-in `/edit` and `/review` commands use the same handler pattern, so you can add your own modes that integrate seamlessly.
+
+#### Built-in Modes
+
+| Command | Description |
+|---------|-------------|
+| `/edit` | AI edits the document based on your prompt |
+| `/review` | AI reviews track changes and recommends accept/reject |
+
+#### Adding Custom Modes
+
+```tsx
+import { 
+  AIEditorProvider, 
+  AIMode, 
+  ModeContext, 
+  ModeResult 
+} from 'dedit-react-editor';
+import { Sparkles } from 'lucide-react';
+
+// Define a custom mode
+const summarizeMode: AIMode = {
+  name: "summarize",
+  description: "Summarize the document",
+  icon: <Sparkles size={14} />,
+  handler: async (context: ModeContext): Promise<ModeResult> => {
+    // Call your backend or AI service
+    const response = await fetch('/api/ai/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paragraphs: context.paragraphs,
+        prompt: context.prompt,
+      }),
+    });
+    
+    const data = await response.json();
+    
+    // Return just a message (no UI treatment)
+    return { message: data.summary };
+    
+    // Or return edits to trigger the edit UI (accept/reject per edit)
+    // return { message: "Summary added", edits: [...] };
+    
+    // Or return recommendations to trigger the review UI
+    // return { message: "Review complete", recommendations: [...] };
+  },
+};
+
+// Add to config
+function App() {
+  return (
+    <AIEditorProvider config={{ 
+      aiAuthorName: "AI",
+      modes: [summarizeMode],  // Your modes appear alongside /edit and /review
+    }}>
+      <AppContent />
+    </AIEditorProvider>
+  );
+}
+```
+
+#### ModeContext
+
+Handlers receive full context about the editor state:
+
+```typescript
+interface ModeContext {
+  prompt: string;                    // User's prompt text (without /command prefix)
+  selectedText: string | null;       // Currently selected text
+  hasSelection: boolean;             // Whether there's a selection
+  paragraphs: Array<{                // All document paragraphs
+    id: string;                      // UUID for targeting edits
+    text: string;                    // Clean text content
+  }>;
+  trackChanges: Array<{              // Individual track changes
+    id: string;
+    type: "insertion" | "deletion";
+    text: string;
+    author: string | null;
+    paragraphId: string;
+  }>;
+  groupedChanges: Array<{            // Contiguous blocks of changes
+    paragraphId: string;
+    changes: TrackChange[];
+    combinedText: string;
+    startPos: number;
+    endPos: number;
+  }>;
+  contextItems: ContextItem[];       // User-added context items (drag & drop)
+  editor: Editor;                    // TipTap editor instance
+}
+```
+
+#### ModeResult
+
+Handlers return a result that determines the UI treatment:
+
+```typescript
+interface ModeResult {
+  message: string;                   // Message shown to user
+  edits?: ModeEdit[];                // Triggers edit UI (accept/reject per edit)
+  recommendations?: ModeRecommendation[];  // Triggers review UI (apply/discard)
+}
+
+// For edit mode UI
+interface ModeEdit {
+  paragraphId: string;               // UUID of paragraph to edit
+  original: string;                  // Original text
+  replacement: string;               // New text
+}
+
+// For review mode UI
+interface ModeRecommendation {
+  changeId: string;                  // Track change ID
+  action: "accept" | "reject";       // Recommended action
+  reason: string;                    // Explanation
+}
+```
+
+#### Backend Handler for Custom Modes
+
+Your backend can use the same pattern for custom modes:
+
+```python
+@app.post("/api/ai/summarize")
+async def summarize(request: SummarizeRequest):
+    # Build prompt with document content
+    document_text = "\n".join([p["text"] for p in request.paragraphs])
+    
+    response = await openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "Summarize the following document."},
+            {"role": "user", "content": document_text}
+        ]
+    )
+    
+    return {"summary": response.choices[0].message.content}
+```
+
+#### Using Review Mode with Custom Backend
+
+If you use `onAIRequest` for a custom backend, also add `onAIReviewRequest` for review mode:
+
+```tsx
+const config: AIEditorConfig = {
+  onAIRequest: async (request) => {
+    // Handle /edit requests
+    return await yourBackend.handleEdit(request);
+  },
+  onAIReviewRequest: async (request) => {
+    // Handle /review requests
+    return await yourBackend.handleReview(request);
+  },
+};
+```
+
+The review request/response types:
+
+```typescript
+interface AIReviewRequest {
+  prompt: string;
+  changes: Array<{
+    id: string;
+    type: "insertion" | "deletion";
+    text: string;
+    author: string | null;
+    paragraphId: string;
+    paragraphText: string;
+  }>;
+}
+
+interface AIReviewResponse {
+  message: string;
+  recommendations: Array<{
+    changeId: string;
+    action: "accept" | "reject";
+    reason: string;
+  }>;
+}
+```
 
 ### CSS Classes
 

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useAIEditor } from "../../context/AIEditorContext";
+import { useAIEditor, AIMode } from "../../context/AIEditorContext";
 
 interface PromptInputProps {
   className?: string;
@@ -7,47 +7,23 @@ interface PromptInputProps {
   showSelectionIndicator?: boolean;
 }
 
-/** Available slash commands */
-interface SlashCommand {
-  name: string;
-  description: string;
-  icon: React.ReactNode;
-}
-
-const SLASH_COMMANDS: SlashCommand[] = [
-  {
-    name: "review",
-    description: "Review track changes and recommend accept/reject",
-    icon: (
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <path d="M9 11l3 3L22 4" />
-        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-      </svg>
-    ),
-  },
-];
-
 /**
  * Check if user is typing a slash command (starts with / but not yet complete)
  */
-function getSlashCommandState(prompt: string): {
+function getSlashCommandState(
+  prompt: string,
+  availableModes: AIMode[],
+): {
   isTypingCommand: boolean;
   partialCommand: string;
-  matchingCommands: SlashCommand[];
+  matchingCommands: AIMode[];
 } {
   const match = prompt.match(/^\/(\w*)$/);
 
   if (match) {
     const partial = match[1].toLowerCase();
-    const matching = SLASH_COMMANDS.filter((cmd) =>
-      cmd.name.toLowerCase().startsWith(partial),
+    const matching = availableModes.filter((mode) =>
+      mode.name.toLowerCase().startsWith(partial),
     );
     return {
       isTypingCommand: true,
@@ -84,10 +60,11 @@ export function PromptInput({
     addContextItems,
     removeContextItem,
     resolveContextItems,
+    availableModes,
   } = useAIEditor();
 
   // Active command (as a pill) - null means no command selected
-  const [activeCommand, setActiveCommand] = useState<SlashCommand | null>(null);
+  const [activeCommand, setActiveCommand] = useState<AIMode | null>(null);
   // Text input (separate from command)
   const [inputText, setInputText] = useState("");
   // For autocomplete menu
@@ -99,8 +76,8 @@ export function PromptInput({
 
   // Check if user is typing a slash command
   const { isTypingCommand, matchingCommands } = useMemo(
-    () => getSlashCommandState(inputText),
-    [inputText],
+    () => getSlashCommandState(inputText, availableModes),
+    [inputText, availableModes],
   );
 
   // Reset selection when commands change
@@ -152,7 +129,7 @@ export function PromptInput({
 
   // Insert pill into the editor DOM
   const insertPill = useCallback(
-    (command: SlashCommand) => {
+    (command: AIMode) => {
       const editor = editorRef.current;
       if (!editor) return;
 
@@ -191,7 +168,7 @@ export function PromptInput({
 
   // Complete the selected command - sets it as active pill
   const completeCommand = useCallback(
-    (command: SlashCommand) => {
+    (command: AIMode) => {
       setActiveCommand(command);
       setInputText("");
       setSelectedCommandIndex(0);
@@ -214,14 +191,10 @@ export function PromptInput({
       if (!text && !activeCommand) return;
       if (isLoading || !canSendPrompts) return;
 
-      // Build the full prompt
-      const fullPrompt = activeCommand
-        ? `/${activeCommand.name} ${text}`
-        : text;
+      // Build the full prompt (without command prefix - mode is passed separately)
+      const fullPrompt = text;
 
-      const isReviewMode = activeCommand?.name === "review";
-
-      await sendPrompt(fullPrompt, { forceReviewMode: isReviewMode });
+      await sendPrompt(fullPrompt, { mode: activeCommand || undefined });
       setInputText("");
       setActiveCommand(null);
       // Clear the editor

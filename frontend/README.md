@@ -472,6 +472,12 @@ import {
   Section,
   TableWithId,
 
+  // AI Components
+  AIEditorProvider,
+  useAIEditor,
+  AIChatPanel,
+  PromptInput,
+
   // Types
   type DocumentEditorProps,
   type EditorHandle,
@@ -482,8 +488,42 @@ import {
   type CommentsConfig,
   type ExportOptions,
   type ExportPayload,
+  type AIMode,
+  type ModeContext,
+  type ModeResult,
 } from 'dedit-react-editor';
 ```
+
+## AI-Assisted Editing
+
+The library includes AI components for document editing with support for custom slash commands:
+
+```tsx
+import { AIEditorProvider, AIMode, ModeContext, ModeResult } from 'dedit-react-editor';
+
+// Built-in modes: /edit and /review
+// Add your own custom modes:
+const customMode: AIMode = {
+  name: "summarize",
+  description: "Summarize the document",
+  icon: <Sparkles size={14} />,
+  handler: async (context: ModeContext): Promise<ModeResult> => {
+    // Your AI logic here
+    return { message: "Summary: ..." };
+  },
+};
+
+<AIEditorProvider config={{ 
+  aiAuthorName: "AI",
+  modes: [customMode],           // Custom modes alongside /edit and /review
+  onAIRequest: handleEdit,       // Backend proxy for /edit
+  onAIReviewRequest: handleReview, // Backend proxy for /review
+}}>
+  <YourApp />
+</AIEditorProvider>
+```
+
+See [docs/USAGE.md](../docs/USAGE.md#custom-slash-commands-modes) for complete AI documentation.
 
 ## Props Reference
 
